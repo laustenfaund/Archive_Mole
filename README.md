@@ -1,2 +1,2 @@
 # Archive-Export-Mole
-perfect for digging up the past in a calm orderly fashion
+perfect for digging up the past in a calm and orderly fashion
