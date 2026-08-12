@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Conversation Database</title>
+    <title>Archive Mole</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap"
@@ -254,9 +254,7 @@
         padding: 10px 14px;
         margin-bottom: 12px;
       }
-      .search-box:focus-within {
-        border-color: var(--border2);
-      }
+      .search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(74, 158, 255, 0.25); }
       .search-main {
         display: flex;
         align-items: center;
@@ -330,11 +328,7 @@
         margin-top: 8px;
         align-items: center;
       }
-      .search-mode-label {
-        font-size: 11px;
-        color: var(--text3);
-        font-family: var(--mono);
-      }
+      .search-mode-label { font-size: 11px; color: var(--text2); font-family: var(--mono); }
       .mode-btn {
         font-size: 11px;
         font-family: var(--mono);
@@ -346,11 +340,7 @@
         cursor: pointer;
         transition: all 0.1s;
       }
-      .mode-btn.active {
-        background: var(--bg3);
-        color: var(--text);
-        border-color: var(--border2);
-      }
+      .mode-btn.active { background: rgba(74, 158, 255, 0.15); color: var(--accent); border-color: var(--accent); }
 
       /* Filters */
       .filter-bar {
@@ -360,11 +350,7 @@
         flex-wrap: wrap;
         align-items: center;
       }
-      .filter-label {
-        font-size: 11px;
-        color: var(--text3);
-        font-family: var(--mono);
-      }
+      .filter-label { font-size: 11px; color: var(--text2); font-family: var(--mono); }
       .chip {
         font-size: 12px;
         font-family: var(--mono);
@@ -376,11 +362,7 @@
         cursor: pointer;
         transition: all 0.1s;
       }
-      .chip.active {
-        background: var(--bg3);
-        color: var(--text);
-        border-color: var(--border2);
-      }
+      .chip.active { background: rgba(74, 158, 255, 0.15); color: var(--accent); border-color: var(--accent); }
       .chip:hover {
         border-color: var(--border2);
       }
@@ -841,7 +823,7 @@
             gap: 8px;
           "
         >
-          <div class="site-title">my<span>.</span>conversations</div>
+          <div class="site-title">Archive<span> Mole</span></div>
           <div class="site-sub">personal conversation database</div>
         </div>
         <div class="drop-zone" id="drop-zone-empty">
@@ -866,7 +848,7 @@
       <div id="main-area" style="display: none">
         <div class="site-header">
           <div>
-            <div class="site-title">my<span>.</span>conversations</div>
+            <div class="site-title">Archive<span> Mole</span></div>
             <div class="site-sub" id="header-sub">
               personal conversation database
             </div>
