@@ -982,6 +982,9 @@
             <div class="site-title">Archive<span> Mole</span><span class="title-cursor"></span></div>
           </div>
           <div class="site-sub">personal conversation database</div>
+          <div class="header-actions">
+            <button class="add-files-btn" id="manual-btn-empty">manual</button>
+          </div>
         </div>
         <div class="drop-zone" id="drop-zone-empty">
           <div class="drop-zone-icon">📂</div>
@@ -2910,13 +2913,17 @@ Apr 14, 2026</div>
 `;
       const manualFrame = document.getElementById('manual-frame');
       let manualLoaded = false;
-      document.getElementById('manual-btn').addEventListener('click', () => {
+      function openManual() {
         if (!manualLoaded) {
           manualFrame.srcdoc = MANUAL_HTML;
           manualLoaded = true;
         }
         document.getElementById('manual-overlay').style.display = 'flex';
-      });
+      }
+      document.getElementById('manual-btn').addEventListener('click', openManual);
+      document
+        .getElementById('manual-btn-empty')
+        .addEventListener('click', openManual);
       document
         .getElementById('manual-close-btn')
         .addEventListener('click', () => {
