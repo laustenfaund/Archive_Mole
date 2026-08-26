@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Relay</title>
+<style>
+  :root {
+    --bg: #f7f6f3;
+    --panel: #ffffff;
+    --border: #ddd8ce;
+    --text: #1e1c19;
+    --text2: #6b6459;
+    --accent: #7a5cff;
+    --accent-ink: #ffffff;
+    --warn: #b5482c;
+    --warn-bg: #fbe9e4;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17161a;
+      --panel: #201f24;
+      --border: #38353d;
+      --text: #ece9e6;
+      --text2: #9a948c;
+      --accent: #a894ff;
+      --accent-ink: #1a1526;
+      --warn: #ff8f6f;
+      --warn-bg: #3a2420;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); line-height: 1.5;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 80px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+  h1 { font-size: 22px; margin: 0; }
+  .tagline { color: var(--text2); font-size: 14px; margin: 0 0 20px; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); padding: 8px 14px;
+  }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.ghost { background: transparent; }
+  button.danger { color: var(--warn); border-color: var(--warn); }
+  button:not(.primary):hover { background: var(--bg); }
+  textarea, input[type=text], input[type=password], select {
+    font: inherit; width: 100%; padding: 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    resize: vertical;
+  }
+  label.field-label { display: block; font-size: 13px; color: var(--text2); margin: 0 0 6px; }
+  section.card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px; margin-bottom: 16px;
+  }
+  section.card > h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text2); margin: 0 0 14px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row.between { justify-content: space-between; }
+  .small { font-size: 13px; color: var(--text2); }
+  details.about summary { cursor: pointer; font-size: 13px; color: var(--text2); }
+  details.about { margin: 20px 0; }
+  details.about p { font-size: 13px; color: var(--text2); }
+  .output-block {
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 6px;
+    background: var(--bg); white-space: pre-wrap; font-family: var(--sans);
+  }
+  .note-block {
+    border: 1px dashed var(--warn); background: var(--warn-bg); color: var(--warn);
+    border-radius: 8px; padding: 10px 12px; margin-top: 10px; font-size: 14px;
+  }
+  .error-block {
+    border: 1px solid var(--warn); background: var(--warn-bg); color: var(--warn);
+    border-radius: 8px; padding: 10px 12px; margin-top: 10px; font-size: 14px;
+  }
+  .badge {
+    display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--text2);
+  }
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none;
+    align-items: center; justify-content: center; z-index: 999; padding: 16px;
+  }
+  .overlay .box { background: var(--panel); border-radius: 12px; padding: 20px; max-width: 420px; width: 100%; }
+  .overlay .box h3 { margin-top: 0; color: var(--warn); }
+  .draft-box { border: 1px solid var(--accent); border-radius: 8px; padding: 12px; margin-top: 10px; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .checkbox-row input { width: auto; }
+  .hint { font-size: 12px; color: var(--text2); margin-top: 4px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Relay</h1>
+    <button id="settings-toggle" class="ghost">settings</button>
+  </header>
+  <p class="tagline">Reword what you wrote so it lands the way you meant it to — without pretending it's a perfect translation.</p>
+
+  <section class="card" id="settings-panel" style="display:none;">
+    <h2>Settings — your API key</h2>
+    <label class="field-label" for="api-key">Anthropic API key (stored only in this browser, on this device)</label>
+    <div class="row">
+      <input type="password" id="api-key" placeholder="sk-ant-…" style="flex:1;" />
+      <button id="toggle-key-visibility" class="ghost">show</button>
+    </div>
+    <p class="hint">Relay calls the Claude API directly from your browser with this key. Nothing is sent to any server run by Relay — there isn't one. You pay Anthropic directly for what you use; a single translation typically costs a small fraction of a cent to a few cents depending on the model below.</p>
+    <label class="field-label" style="margin-top:14px;">Model</label>
+    <select id="model-select">
+      <option value="claude-sonnet-5">Sonnet 5 — balanced (default)</option>
+      <option value="claude-haiku-4-5-20251001">Haiku 4.5 — cheapest, less nuance</option>
+      <option value="claude-opus-5">Opus 5 — most nuanced, priciest</option>
+    </select>
+    <div class="row" style="margin-top:14px;">
+      <button id="save-settings" class="primary">save</button>
+      <span id="settings-saved-hint" class="small" style="display:none;">saved</span>
+    </div>
+  </section>
+
+  <section class="card" id="personalization-panel">
+    <h2>Your voice</h2>
+    <label class="field-label" for="profile-text">How you naturally communicate, in your own words — this is what Relay reads before rewording anything. Nothing here is inferred behind your back; you write and edit it directly.</label>
+    <textarea id="profile-text" rows="5" placeholder="e.g. I tend to be very literal and direct, I often lead with the conclusion before the reasoning, I sometimes info-dump on topics I care about, sarcasm rarely lands for me either direction…"></textarea>
+    <div class="row" style="margin-top:10px;">
+      <button id="save-profile">save voice notes</button>
+      <span id="profile-saved-hint" class="small" style="display:none;">saved</span>
+    </div>
+
+    <div style="margin-top:18px; padding-top:16px; border-top:1px solid var(--border);">
+      <label class="field-label">Optional: draft a starting point from a chat archive</label>
+      <p class="small" style="margin-top:0;">Upload ChatGPT or Claude export <code>.json</code> file(s). Relay reads only <em>your own</em> messages from them — never the assistant's replies — to draft a description of your communication patterns. The draft is shown to you to edit or reject; nothing is saved automatically.</p>
+      <input type="file" id="archive-input" accept=".json" multiple />
+      <div class="row" style="margin-top:10px;">
+        <span id="archive-count" class="badge">0 of your messages stored</span>
+        <button id="draft-profile-btn" disabled>draft profile from archive</button>
+      </div>
+      <div id="draft-box" class="draft-box" style="display:none;">
+        <label class="field-label">Draft — review before using it</label>
+        <textarea id="draft-text" rows="5"></textarea>
+        <div class="row" style="margin-top:8px;">
+          <button id="use-draft-btn" class="primary">use this as my voice notes</button>
+          <button id="discard-draft-btn" class="ghost">discard</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row between" style="margin-top:18px; padding-top:16px; border-top:1px solid var(--border);">
+      <span class="small">API key, voice notes, and archived messages all live only in this browser.</span>
+      <button id="clear-data-btn" class="danger">clear all local data</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Translate</h2>
+    <label class="field-label" for="input-text">What you want to say</label>
+    <textarea id="input-text" rows="5" placeholder="Paste or write the message you're about to send…"></textarea>
+    <div class="row" style="margin-top:10px;">
+      <button id="translate-btn" class="primary">translate</button>
+      <span id="translate-status" class="small"></span>
+    </div>
+
+    <div id="result-area" style="display:none; margin-top:16px;">
+      <label class="field-label">Reworded for a neurotypical reader</label>
+      <div id="translated-block" class="output-block"></div>
+      <div id="note-block" class="note-block" style="display:none;"></div>
+
+      <div class="row" style="margin-top:12px;">
+        <label class="checkbox-row">
+          <input type="checkbox" id="include-original-toggle" />
+          include my original when I copy
+        </label>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button id="copy-btn">copy</button>
+        <span id="copy-hint" class="small" style="display:none;">copied</span>
+      </div>
+    </div>
+    <div id="translate-error" class="error-block" style="display:none;"></div>
+  </section>
+
+  <details class="about">
+    <summary>Why this only translates one direction, and why it isn't 100%</summary>
+    <p>Relay only reworks neurodivergent → neurotypical phrasing, on purpose. Miscommunication between neurotypes is a two-way problem, not a one-sided deficit — but in practice, the work of crossing that gap already falls disproportionately on neurodivergent people. This tool meets people where that labor already sits; it isn't claiming to fix the imbalance itself.</p>
+    <p>It also won't claim a message translated completely when it didn't. Some things genuinely don't have a clean neurotypical-legible equivalent — Relay will say so in a note rather than quietly smoothing over what got lost.</p>
+    <p>Your API key, voice notes, and any archive-derived messages are stored only in this browser, on this device, and are never sent anywhere except directly to Anthropic when you translate. There is no account, no backend, and no export — the "clear all local data" button really deletes it.</p>
+  </details>
+</div>
+
+<div class="overlay" id="clear-overlay">
+  <div class="box">
+    <h3>Clear all local data</h3>
+    <p id="clear-summary" class="small"></p>
+    <div class="row" style="margin-top:14px;">
+      <button id="clear-cancel-btn" class="ghost">cancel</button>
+      <button id="clear-confirm-btn" class="danger">delete everything</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- storage: IndexedDB with localStorage fallback, mirrors Archive Mole's pattern ----------
+  const DB_NAME = 'relay_db', STORE = 'kv';
+  const KEY_API = 'relay_api_key', KEY_MODEL = 'relay_model',
+        KEY_PROFILE = 'relay_profile', KEY_ARCHIVE = 'relay_archive_messages';
+
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbGet(key) {
+    try {
+      const db = await openDB();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
+        tx.onsuccess = () => resolve(tx.result);
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (e) { return undefined; }
+  }
+  async function idbSet(key, value) {
+    try {
+      const db = await openDB();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite').objectStore(STORE).put(value, key);
+        tx.onsuccess = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (e) {
+      try { localStorage.setItem(key, JSON.stringify(value)); } catch (e2) {}
+    }
+  }
+  async function idbDelete(key) {
+    try {
+      const db = await openDB();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite').objectStore(STORE).delete(key);
+        tx.onsuccess = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (e) {}
+    try { localStorage.removeItem(key); } catch (e2) {}
+  }
+
+  let state = { apiKey: '', model: 'claude-sonnet-5', profile: '', archive: [] };
+
+  async function loadState() {
+    const [apiKey, model, profile, archive] = await Promise.all([
+      idbGet(KEY_API), idbGet(KEY_MODEL), idbGet(KEY_PROFILE), idbGet(KEY_ARCHIVE)
+    ]);
+    if (apiKey !== undefined) state.apiKey = apiKey;
+    else { try { const v = localStorage.getItem(KEY_API); if (v) state.apiKey = JSON.parse(v); } catch (e) {} }
+    if (model !== undefined) state.model = model;
+    if (profile !== undefined) state.profile = profile;
+    if (Array.isArray(archive)) state.archive = archive;
+  }
+
+  // ---------- archive parsing (adapted from Archive Mole's parser; user-authored text only) ----------
+  const ANNOT_S0 = String.fromCodePoint(0xe200),
+        ANNOT_S1 = String.fromCodePoint(0xe201),
+        ANNOT_S2 = String.fromCodePoint(0xe202);
+  const ANNOTATION_RE = new RegExp(ANNOT_S0 + '([a-zA-Z_]+)' + ANNOT_S2 + '([\\s\\S]*?)' + ANNOT_S1, 'g');
+  const ANNOTATION_STRAY_RE = new RegExp('[' + ANNOT_S0 + ANNOT_S1 + ANNOT_S2 + '][a-zA-Z_]*', 'g');
+  function stripAnnotations(text) {
+    if (!text || text.indexOf(ANNOT_S0) === -1) return text;
+    let out = text.replace(ANNOTATION_RE, (full, tag, payload) => {
+      if (tag === 'entity' || tag === 'product_entity') {
+        try { const data = JSON.parse(payload); if (Array.isArray(data) && typeof data[1] === 'string') return data[1]; } catch (e) {}
+      }
+      return '';
+    });
+    if (out.indexOf(ANNOT_S0) !== -1 || out.indexOf(ANNOT_S1) !== -1 || out.indexOf(ANNOT_S2) !== -1)
+      out = out.replace(ANNOTATION_STRAY_RE, '');
+    return out;
+  }
+  function extractUserTextsFromClaudeConv(conv) {
+    const msgs = Array.isArray(conv.chat_messages) ? conv.chat_messages : [];
+    const out = [];
+    for (const m of msgs) {
+      if (m.sender !== 'human') continue;
+      let text = '';
+      if (typeof m.text === 'string' && m.text.length) text = m.text;
+      else if (Array.isArray(m.content)) text = m.content.map((c) => (c && typeof c.text === 'string') ? c.text : '').join('\n');
+      if (text && text.trim()) out.push(text.trim());
+    }
+    return out;
+  }
+  function extractUserTextsFromChatGPTConv(conv) {
+    const mapping = conv.mapping || {}, nodeIds = Object.keys(mapping), out = [];
+    if (!nodeIds.length) return out;
+    const childSet = new Set();
+    for (const n of Object.values(mapping)) (n.children || []).forEach((c) => childSet.add(c));
+    let cur = nodeIds.find((id) => !mapping[id].parent || !mapping[mapping[id].parent]);
+    if (!cur) cur = nodeIds.find((id) => !childSet.has(id));
+    if (!cur) cur = nodeIds[0];
+    const visited = new Set();
+    while (cur && !visited.has(cur)) {
+      visited.add(cur);
+      const node = mapping[cur];
+      if (!node) break;
+      const msg = node.message;
+      if (msg && msg.content && msg.author && msg.author.role === 'user') {
+        let text = '';
+        if (msg.content.content_type === 'text' && Array.isArray(msg.content.parts))
+          text = stripAnnotations(msg.content.parts.filter((p) => typeof p === 'string').join(''));
+        if (text && text.trim()) out.push(text.trim());
+      }
+      const children = (node.children || []).filter((c) => mapping[c]);
+      cur = children[children.length - 1];
+    }
+    return out;
+  }
+  function parseArchiveFile(data) {
+    const out = [];
+    const raw = Array.isArray(data) ? data : (data.conversations ? data.conversations : [data]);
+    for (const conv of raw) {
+      if (!conv || typeof conv !== 'object') continue;
+      if (Array.isArray(conv.chat_messages)) out.push(...extractUserTextsFromClaudeConv(conv));
+      else if (conv.mapping) out.push(...extractUserTextsFromChatGPTConv(conv));
+    }
+    return out;
+  }
+
+  // ---------- Claude API ----------
+  const API_URL = 'https://api.anthropic.com/v1/messages';
+  async function callClaude({ system, userContent, maxTokens }) {
+    if (!state.apiKey) throw new Error('NO_KEY');
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': state.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: state.model,
+        max_tokens: maxTokens || 1024,
+        system: system,
+        messages: [{ role: 'user', content: userContent }]
+      })
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.json()).error?.message || ''; } catch (e) {}
+      const err = new Error(detail || ('HTTP ' + res.status));
+      err.status = res.status;
+      throw err;
+    }
+    const json = await res.json();
+    const block = (json.content || []).find((b) => b.type === 'text');
+    return block ? block.text : '';
+  }
+
+  function buildTranslateSystemPrompt() {
+    const profileBlock = state.profile.trim()
+      ? 'Here is how this person has described their own natural communication style, in their own words — use it to calibrate tone and what\'s worth preserving, not as a checklist:\n"""\n' + state.profile.trim() + '\n"""'
+      : 'No communication-style notes have been provided yet for this person; translate conservatively without assuming a specific style.';
+    return [
+      'You are part of Relay, a tool that helps a specific neurodivergent (ND) person\'s own written messages be understood by neurotypical (NT) readers — without erasing how they actually talk.',
+      '',
+      'Given one message the person is about to send to someone else:',
+      '1. Reword it for an NT reader, aimed at reducing the chance it gets misread as cold, blunt, confusing, or oversharing — while preserving what the person actually meant and intended. When faithfulness to the literal wording and reducing misunderstanding pull in different directions, prioritize reducing misunderstanding.',
+      '2. Do not add claims, feelings, or content the original didn\'t express or imply.',
+      '3. Do not lecture, moralize, or explain neurodivergence to the reader — just produce the reworded message itself.',
+      '4. If some part of the original genuinely has no clean NT-legible equivalent, say so briefly instead of pretending the rewrite is complete. If everything carried over cleanly, don\'t mention this at all.',
+      '',
+      profileBlock,
+      '',
+      'Respond in exactly this format, nothing else:',
+      'TRANSLATED:',
+      '<the reworded message>',
+      '',
+      'NOTE:',
+      '<what didn\'t fully carry over, or the single word NONE if nothing is missing>'
+    ].join('\n');
+  }
+
+  function parseTranslateResponse(text) {
+    const tMatch = text.match(/TRANSLATED:\s*([\s\S]*?)(?:\n\s*NOTE:|$)/i);
+    const nMatch = text.match(/NOTE:\s*([\s\S]*)$/i);
+    const translated = (tMatch ? tMatch[1] : text).trim();
+    let note = nMatch ? nMatch[1].trim() : '';
+    if (/^none$/i.test(note)) note = '';
+    return { translated, note };
+  }
+
+  const PROFILE_DRAFT_SYSTEM = [
+    'You are helping draft a short, editable description of how a specific person naturally communicates, based only on messages they themselves wrote to an AI assistant over time (not the assistant\'s replies). This draft will be shown to the person to edit or reject before it is used anywhere.',
+    '',
+    'Rules:',
+    '- Describe only communication patterns actually visible in the text: sentence structure, register shifts, associative or non-linear structure, recurring phrasings, how they build up an idea, use of qualifiers, directness, etc.',
+    '- Do not diagnose, label, or speculate about any condition or diagnosis.',
+    '- Do not evaluate or judge the patterns (no "struggles with", no "fails to").',
+    '- Write it in second person, addressed to the person themselves (e.g. "You tend to…").',
+    '- Keep it under roughly 180 words.',
+    '',
+    'Respond with only the description text, nothing else — no preamble, no headers.'
+  ].join('\n');
+
+  function sampleArchiveForDraft(archive, charCap) {
+    charCap = charCap || 12000;
+    if (!archive.length) return '';
+    const n = archive.length;
+    const step = Math.max(1, Math.floor(n / 60)); // spread the sample across the whole archive, not just the tail
+    const picked = [];
+    let used = 0;
+    for (let i = 0; i < n && used < charCap; i += step) {
+      const t = archive[i];
+      picked.push(t);
+      used += t.length;
+    }
+    return picked.join('\n---\n');
+  }
+
+  // ---------- UI wiring ----------
+  const $ = (id) => document.getElementById(id);
+
+  function refreshSettingsUI() {
+    $('api-key').value = state.apiKey || '';
+    $('model-select').value = state.model || 'claude-sonnet-5';
+    $('profile-text').value = state.profile || '';
+    $('archive-count').textContent = state.archive.length + ' of your messages stored';
+    $('draft-profile-btn').disabled = state.archive.length === 0;
+  }
+
+  $('settings-toggle').addEventListener('click', () => {
+    const el = $('settings-panel');
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  });
+  $('toggle-key-visibility').addEventListener('click', () => {
+    const el = $('api-key');
+    const showing = el.type === 'text';
+    el.type = showing ? 'password' : 'text';
+    $('toggle-key-visibility').textContent = showing ? 'show' : 'hide';
+  });
+  $('save-settings').addEventListener('click', async () => {
+    state.apiKey = $('api-key').value.trim();
+    state.model = $('model-select').value;
+    await idbSet(KEY_API, state.apiKey);
+    await idbSet(KEY_MODEL, state.model);
+    $('settings-saved-hint').style.display = 'inline';
+    setTimeout(() => { $('settings-saved-hint').style.display = 'none'; }, 1500);
+  });
+  $('save-profile').addEventListener('click', async () => {
+    state.profile = $('profile-text').value;
+    await idbSet(KEY_PROFILE, state.profile);
+    $('profile-saved-hint').style.display = 'inline';
+    setTimeout(() => { $('profile-saved-hint').style.display = 'none'; }, 1500);
+  });
+
+  $('archive-input').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const existing = new Set(state.archive);
+    for (const file of files) {
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const texts = parseArchiveFile(data);
+        for (const t of texts) existing.add(t);
+      } catch (err) {
+        console.warn('Could not parse', file.name, err);
+      }
+    }
+    state.archive = Array.from(existing);
+    await idbSet(KEY_ARCHIVE, state.archive);
+    refreshSettingsUI();
+    e.target.value = '';
+  });
+
+  $('draft-profile-btn').addEventListener('click', async () => {
+    const btn = $('draft-profile-btn');
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = 'drafting…';
+    try {
+      const sample = sampleArchiveForDraft(state.archive);
+      const draft = await callClaude({
+        system: PROFILE_DRAFT_SYSTEM,
+        userContent: 'Here are messages this person wrote, in their own words:\n\n' + sample,
+        maxTokens: 500
+      });
+      $('draft-text').value = draft.trim();
+      $('draft-box').style.display = 'block';
+    } catch (err) {
+      alert('Could not draft a profile: ' + describeError(err));
+    } finally {
+      btn.textContent = original;
+      btn.disabled = state.archive.length === 0;
+    }
+  });
+  $('use-draft-btn').addEventListener('click', async () => {
+    state.profile = $('draft-text').value;
+    $('profile-text').value = state.profile;
+    await idbSet(KEY_PROFILE, state.profile);
+    $('draft-box').style.display = 'none';
+  });
+  $('discard-draft-btn').addEventListener('click', () => { $('draft-box').style.display = 'none'; });
+
+  $('clear-data-btn').addEventListener('click', () => {
+    const hasKey = !!state.apiKey;
+    const profileLen = (state.profile || '').trim().length;
+    const archiveCount = state.archive.length;
+    $('clear-summary').textContent =
+      (hasKey ? 'your saved API key, ' : '') +
+      (profileLen ? 'your voice notes (' + profileLen + ' characters), ' : '') +
+      archiveCount + ' archived message' + (archiveCount === 1 ? '' : 's') +
+      ' — all from this browser, permanently.';
+    $('clear-overlay').style.display = 'flex';
+  });
+  $('clear-cancel-btn').addEventListener('click', () => { $('clear-overlay').style.display = 'none'; });
+  $('clear-overlay').addEventListener('click', (e) => { if (e.target.id === 'clear-overlay') $('clear-overlay').style.display = 'none'; });
+  $('clear-confirm-btn').addEventListener('click', async () => {
+    const btn = $('clear-confirm-btn');
+    btn.textContent = 'clearing…'; btn.disabled = true;
+    await Promise.all([idbDelete(KEY_API), idbDelete(KEY_MODEL), idbDelete(KEY_PROFILE), idbDelete(KEY_ARCHIVE)]);
+    location.reload();
+  });
+
+  function describeError(err) {
+    if (err && err.message === 'NO_KEY') return 'add your API key in settings first.';
+    if (err && err.status === 401) return 'that API key was rejected — check it in settings.';
+    if (err && err.status === 429) return 'rate limited — wait a moment and try again.';
+    if (err instanceof TypeError) return 'the request could not reach the API (network error, or the browser blocked it).';
+    return (err && err.message) || 'something went wrong.';
+  }
+
+  let lastTranslated = '', lastOriginal = '';
+  $('translate-btn').addEventListener('click', async () => {
+    const input = $('input-text').value.trim();
+    $('translate-error').style.display = 'none';
+    if (!input) return;
+    const btn = $('translate-btn');
+    btn.disabled = true;
+    $('translate-status').textContent = 'translating…';
+    try {
+      const raw = await callClaude({ system: buildTranslateSystemPrompt(), userContent: input, maxTokens: 800 });
+      const { translated, note } = parseTranslateResponse(raw);
+      lastTranslated = translated; lastOriginal = input;
+      $('translated-block').textContent = translated;
+      if (note) { $('note-block').textContent = 'Didn\'t fully carry over: ' + note; $('note-block').style.display = 'block'; }
+      else { $('note-block').style.display = 'none'; }
+      $('result-area').style.display = 'block';
+    } catch (err) {
+      $('translate-error').textContent = describeError(err);
+      $('translate-error').style.display = 'block';
+      $('result-area').style.display = 'none';
+    } finally {
+      btn.disabled = false;
+      $('translate-status').textContent = '';
+    }
+  });
+
+  $('copy-btn').addEventListener('click', async () => {
+    const includeOriginal = $('include-original-toggle').checked;
+    const text = includeOriginal
+      ? 'Original:\n' + lastOriginal + '\n\nTranslated for clarity:\n' + lastTranslated
+      : lastTranslated;
+    try {
+      await navigator.clipboard.writeText(text);
+      $('copy-hint').style.display = 'inline';
+      setTimeout(() => { $('copy-hint').style.display = 'none'; }, 1500);
+    } catch (e) {
+      alert('Could not copy automatically — select the text and copy it manually.');
+    }
+  });
+
+  loadState().then(refreshSettingsUI);
+})();
+</script>
+</body>
+</html>
