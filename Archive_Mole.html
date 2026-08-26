@@ -122,13 +122,16 @@
         padding-bottom: 1.5rem;
         border-bottom: 1px solid var(--border);
       }
+      .header-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
       .header-actions {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-      }
-      .header-actions .danger-btn {
-        margin-left: auto;
       }
       .site-title-row {
         display: flex;
@@ -999,6 +1002,7 @@
       <!-- Main area -->
       <div id="main-area" style="display: none;">
         <div class="site-header">
+          <div class="header-top">
           <div>
             <div class="site-title-row">
             <svg class="mole-mark" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -1018,11 +1022,12 @@
               personal conversation database
             </div>
           </div>
+          <button class="add-files-btn" id="manual-btn">manual</button>
+          </div>
           <div class="header-actions">
             <button class="add-files-btn" id="add-files-btn">+ add files</button>
             <button class="add-files-btn" id="brief-btn">brief</button>
             <button class="add-files-btn" id="assistant-btn">assistant</button>
-            <button class="add-files-btn" id="manual-btn">manual</button>
             <button class="add-files-btn danger-btn" id="clear-data-btn">clear data</button>
           </div>
         </div>
