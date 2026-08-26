@@ -1,7 +1,4 @@
-# Relay — design notes (working title)
-
-*"Relay" is a placeholder name, chosen only so the file needs one — swap it freely.
-It's used consistently in the code below so renaming is a find/replace.*
+# U/I — design notes
 
 This document is the distilled spec from a scoping conversation. It exists so the
 shape of the tool doesn't have to be re-derived from memory later, and so future

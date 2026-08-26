@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Relay</title>
+<title>U/I</title>
 <style>
   :root {
     --bg: #f7f6f3;
@@ -98,7 +98,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Relay</h1>
+    <h1>U/I</h1>
     <button id="settings-toggle" class="ghost">settings</button>
   </header>
   <p class="tagline">Reword what you wrote so it lands the way you meant it to — without pretending it's a perfect translation.</p>
@@ -110,7 +110,7 @@
       <input type="password" id="api-key" placeholder="sk-ant-…" style="flex:1;" />
       <button id="toggle-key-visibility" class="ghost">show</button>
     </div>
-    <p class="hint">Relay calls the Claude API directly from your browser with this key. Nothing is sent to any server run by Relay — there isn't one. You pay Anthropic directly for what you use; a single translation typically costs a small fraction of a cent to a few cents depending on the model below.</p>
+    <p class="hint">U/I calls the Claude API directly from your browser with this key. Nothing is sent to any server run by U/I — there isn't one. You pay Anthropic directly for what you use; a single translation typically costs a small fraction of a cent to a few cents depending on the model below.</p>
     <label class="field-label" style="margin-top:14px;">Model</label>
     <select id="model-select">
       <option value="claude-sonnet-5">Sonnet 5 — balanced (default)</option>
@@ -125,7 +125,7 @@
 
   <section class="card" id="personalization-panel">
     <h2>Your voice</h2>
-    <label class="field-label" for="profile-text">How you naturally communicate, in your own words — this is what Relay reads before rewording anything. Nothing here is inferred behind your back; you write and edit it directly.</label>
+    <label class="field-label" for="profile-text">How you naturally communicate, in your own words — this is what U/I reads before rewording anything. Nothing here is inferred behind your back; you write and edit it directly.</label>
     <textarea id="profile-text" rows="5" placeholder="e.g. I tend to be very literal and direct, I often lead with the conclusion before the reasoning, I sometimes info-dump on topics I care about, sarcasm rarely lands for me either direction…"></textarea>
     <div class="row" style="margin-top:10px;">
       <button id="save-profile">save voice notes</button>
@@ -134,7 +134,7 @@
 
     <div style="margin-top:18px; padding-top:16px; border-top:1px solid var(--border);">
       <label class="field-label">Optional: draft a starting point from a chat archive</label>
-      <p class="small" style="margin-top:0;">Upload ChatGPT or Claude export <code>.json</code> file(s). Relay reads only <em>your own</em> messages from them — never the assistant's replies — to draft a description of your communication patterns. The draft is shown to you to edit or reject; nothing is saved automatically.</p>
+      <p class="small" style="margin-top:0;">Upload ChatGPT or Claude export <code>.json</code> file(s). U/I reads only <em>your own</em> messages from them — never the assistant's replies — to draft a description of your communication patterns. The draft is shown to you to edit or reject; nothing is saved automatically.</p>
       <input type="file" id="archive-input" accept=".json" multiple />
       <div class="row" style="margin-top:10px;">
         <span id="archive-count" class="badge">0 of your messages stored</span>
@@ -186,8 +186,8 @@
 
   <details class="about">
     <summary>Why this only translates one direction, and why it isn't 100%</summary>
-    <p>Relay only reworks neurodivergent → neurotypical phrasing, on purpose. Miscommunication between neurotypes is a two-way problem, not a one-sided deficit — but in practice, the work of crossing that gap already falls disproportionately on neurodivergent people. This tool meets people where that labor already sits; it isn't claiming to fix the imbalance itself.</p>
-    <p>It also won't claim a message translated completely when it didn't. Some things genuinely don't have a clean neurotypical-legible equivalent — Relay will say so in a note rather than quietly smoothing over what got lost.</p>
+    <p>U/I only reworks neurodivergent → neurotypical phrasing, on purpose. Miscommunication between neurotypes is a two-way problem, not a one-sided deficit — but in practice, the work of crossing that gap already falls disproportionately on neurodivergent people. This tool meets people where that labor already sits; it isn't claiming to fix the imbalance itself.</p>
+    <p>It also won't claim a message translated completely when it didn't. Some things genuinely don't have a clean neurotypical-legible equivalent — U/I will say so in a note rather than quietly smoothing over what got lost.</p>
     <p>Your API key, voice notes, and any archive-derived messages are stored only in this browser, on this device, and are never sent anywhere except directly to Anthropic when you translate. There is no account, no backend, and no export — the "clear all local data" button really deletes it.</p>
   </details>
 </div>
@@ -369,7 +369,7 @@
       ? 'Here is how this person has described their own natural communication style, in their own words — use it to calibrate tone and what\'s worth preserving, not as a checklist:\n"""\n' + state.profile.trim() + '\n"""'
       : 'No communication-style notes have been provided yet for this person; translate conservatively without assuming a specific style.';
     return [
-      'You are part of Relay, a tool that helps a specific neurodivergent (ND) person\'s own written messages be understood by neurotypical (NT) readers — without erasing how they actually talk.',
+      'You are part of U/I, a tool that helps a specific neurodivergent (ND) person\'s own written messages be understood by neurotypical (NT) readers — without erasing how they actually talk.',
       '',
       'Given one message the person is about to send to someone else:',
       '1. Reword it for an NT reader, aimed at reducing the chance it gets misread as cold, blunt, confusing, or oversharing — while preserving what the person actually meant and intended. When faithfulness to the literal wording and reducing misunderstanding pull in different directions, prioritize reducing misunderstanding.',
