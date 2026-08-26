@@ -116,11 +116,19 @@
       /* Header */
       .site-header {
         display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
+        flex-direction: column;
+        gap: 16px;
         margin-bottom: 2.5rem;
         padding-bottom: 1.5rem;
         border-bottom: 1px solid var(--border);
+      }
+      .header-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .header-actions .danger-btn {
+        margin-left: auto;
       }
       .site-title-row {
         display: flex;
@@ -1010,19 +1018,13 @@
               personal conversation database
             </div>
           </div>
-          <button class="add-files-btn" id="add-files-btn">+ add files</button>
-          <button class="add-files-btn" id="brief-btn" style="margin-left: 8px">
-            brief
-          </button>
-          <button class="add-files-btn" id="assistant-btn" style="margin-left: 8px">
-            assistant
-          </button>
-          <button class="add-files-btn" id="manual-btn" style="margin-left: 8px">
-            manual
-          </button>
-          <button class="add-files-btn danger-btn" id="clear-data-btn" style="margin-left: 8px">
-            clear data
-          </button>
+          <div class="header-actions">
+            <button class="add-files-btn" id="add-files-btn">+ add files</button>
+            <button class="add-files-btn" id="brief-btn">brief</button>
+            <button class="add-files-btn" id="assistant-btn">assistant</button>
+            <button class="add-files-btn" id="manual-btn">manual</button>
+            <button class="add-files-btn danger-btn" id="clear-data-btn">clear data</button>
+          </div>
         </div>
 
         <div class="progress" id="progress" style="display: none;">
