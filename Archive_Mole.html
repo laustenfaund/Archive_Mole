@@ -906,6 +906,13 @@
       .assistant-field:focus {
         border-color: var(--accent);
       }
+      .assistant-textarea {
+        min-height: 38px;
+        max-height: 220px;
+        resize: none;
+        overflow-y: auto;
+        line-height: 1.5;
+      }
 
       /* Empty state */
       .empty-state {
@@ -1280,8 +1287,8 @@ Apr 14, 2026</div>
             <button id="assistant-change-key-btn" class="small-btn">change key</button>
           </div>
           <div id="assistant-messages" class="messages-scroll" style="flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem;"></div>
-          <div style="display: flex; gap: 8px">
-            <input type="text" id="assistant-input" class="assistant-field" style="flex: 1" placeholder="Tell it what you're looking for...">
+          <div style="display: flex; gap: 8px; align-items: flex-end">
+            <textarea id="assistant-input" class="assistant-field assistant-textarea" style="flex: 1" rows="1" placeholder="Tell it what you're looking for..."></textarea>
             <button id="assistant-send-btn" class="add-files-btn">send</button>
           </div>
         </div>
@@ -3017,6 +3024,14 @@ Apr 14, 2026</div>
       // sends the key or archive content anywhere except api.anthropic.com.
       let assistantHistory = [];
       let assistantBusy = false;
+      let assistantAbortController = null;
+      let assistantUserStopped = false;
+
+      function setAssistantButtonState(running) {
+        const btn = document.getElementById('assistant-send-btn');
+        btn.textContent = running ? 'stop' : 'send';
+        btn.classList.toggle('danger-btn', running);
+      }
 
       function toolFilterConversations(input) {
         let result = allConversations;
@@ -3178,6 +3193,7 @@ Apr 14, 2026</div>
         // feedback, which looks identical to the app being broken. This
         // gives a slow-but-real request up to 90s before giving up loudly.
         const controller = new AbortController();
+        assistantAbortController = controller;
         const timeoutId = setTimeout(() => controller.abort(), 90000);
         let res;
         try {
@@ -3199,13 +3215,16 @@ Apr 14, 2026</div>
             signal: controller.signal,
           });
         } catch (e) {
-          if (e.name === 'AbortError')
+          if (e.name === 'AbortError') {
+            if (assistantUserStopped) throw new Error('Stopped.');
             throw new Error(
               'Request timed out after 90s with no response — this is usually a dropped connection or an unreachable network, not the archive itself. Try again.'
             );
+          }
           throw new Error('Could not reach api.anthropic.com: ' + e.message);
         } finally {
           clearTimeout(timeoutId);
+          assistantAbortController = null;
         }
         if (!res.ok) {
           const body = await res.text();
@@ -3221,7 +3240,8 @@ Apr 14, 2026</div>
       async function runAssistantLoop(userText) {
         if (assistantBusy) return;
         assistantBusy = true;
-        document.getElementById('assistant-send-btn').disabled = true;
+        assistantUserStopped = false;
+        setAssistantButtonState(true);
         assistantHistory.push({ role: 'user', content: userText });
         renderAssistantTurn('user', userText);
         try {
@@ -3263,10 +3283,15 @@ Apr 14, 2026</div>
               '(stopped after 8 tool calls in a row — ask a follow-up to continue)'
             );
         } catch (e) {
-          renderAssistantTurn('assistant', 'Something went wrong: ' + e.message);
+          if (e.message === 'Stopped.') {
+            assistantStatusLine('(stopped)');
+          } else {
+            renderAssistantTurn('assistant', 'Something went wrong: ' + e.message);
+          }
         } finally {
           assistantBusy = false;
-          document.getElementById('assistant-send-btn').disabled = false;
+          assistantUserStopped = false;
+          setAssistantButtonState(false);
         }
       }
 
@@ -3320,19 +3345,31 @@ Apr 14, 2026</div>
       document
         .getElementById('assistant-send-btn')
         .addEventListener('click', () => {
+          if (assistantBusy) {
+            assistantUserStopped = true;
+            if (assistantAbortController) assistantAbortController.abort();
+            return;
+          }
           const input = document.getElementById('assistant-input');
           const text = input.value.trim();
           if (!text) return;
           input.value = '';
+          input.style.height = 'auto';
           runAssistantLoop(text);
         });
       document
         .getElementById('assistant-input')
         .addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
+          if (e.key === 'Enter' && !e.shiftKey && !assistantBusy) {
             e.preventDefault();
             document.getElementById('assistant-send-btn').click();
           }
+        });
+      document
+        .getElementById('assistant-input')
+        .addEventListener('input', (e) => {
+          e.target.style.height = 'auto';
+          e.target.style.height = Math.min(e.target.scrollHeight, 220) + 'px';
         });
 
       document.getElementById('file-input').addEventListener('change', (e) => {
