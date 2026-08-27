@@ -1283,6 +1283,12 @@ Apr 14, 2026</div>
               <option value="claude-sonnet-5">Claude Sonnet 5 — faster, cheaper</option>
               <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — fastest, cheapest</option>
             </select>
+            <span class="filter-label">effort:</span>
+            <select id="assistant-effort-select" class="assistant-field" style="padding: 5px 8px; font-size: 12px; font-family: var(--mono); cursor: pointer;" title="How much the model reasons before answering — lower cuts token spend on harder requests.">
+              <option value="high" selected>high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+            </select>
             <button id="assistant-clear-chat-btn" class="small-btn" style="margin-left: auto">clear chat</button>
             <button id="assistant-change-key-btn" class="small-btn">change key</button>
           </div>
@@ -3184,9 +3190,35 @@ Apr 14, 2026</div>
         div.scrollIntoView({ block: 'end' });
       }
 
+      // Attaches a cache_control breakpoint to the last content block of the
+      // last message, without mutating the caller's history array — the
+      // marker only exists in the outgoing request, never accumulates
+      // across rounds. Combined with the breakpoint on `system` below, this
+      // means the brief + tool schemas (identical on every round of every
+      // message in this chat) and the growing conversation prefix both get
+      // served from cache instead of being re-billed at full price on every
+      // single tool-use round trip.
+      function withCacheBreakpoint(messages) {
+        if (!messages.length) return messages;
+        const cloned = messages.slice(0, -1);
+        const last = { ...messages[messages.length - 1] };
+        let content =
+          typeof last.content === 'string'
+            ? [{ type: 'text', text: last.content }]
+            : last.content.slice();
+        content[content.length - 1] = {
+          ...content[content.length - 1],
+          cache_control: { type: 'ephemeral' },
+        };
+        last.content = content;
+        cloned.push(last);
+        return cloned;
+      }
+
       async function callClaude(messages) {
         const apiKey = await idbGet(API_KEY_KEY);
         const model = document.getElementById('assistant-model-select').value;
+        const effort = document.getElementById('assistant-effort-select').value;
         const brief = (await idbGet(BRIEF_KEY)) || DEFAULT_BRIEF;
         // A plain fetch() has no timeout of its own — without one, a dropped
         // connection or an unresponsive proxy hangs forever with zero
@@ -3208,9 +3240,12 @@ Apr 14, 2026</div>
             body: JSON.stringify({
               model,
               max_tokens: 4096,
-              system: brief,
+              system: [
+                { type: 'text', text: brief, cache_control: { type: 'ephemeral' } },
+              ],
               tools: ASSISTANT_TOOLS,
-              messages,
+              output_config: { effort },
+              messages: withCacheBreakpoint(messages),
             }),
             signal: controller.signal,
           });
