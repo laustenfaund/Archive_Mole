@@ -173,6 +173,10 @@
           animation: none;
           opacity: 0.85;
         }
+        .tool-status.thinking {
+          animation: none;
+          opacity: 0.85;
+        }
       }
       .site-sub {
         font-size: 12px;
@@ -877,6 +881,9 @@
         color: var(--text3);
         padding: 2px 0;
       }
+      .tool-status.thinking {
+        animation: title-blink 1.4s ease-in-out infinite;
+      }
       .assistant-key-note {
         font-size: 12px;
         color: var(--text3);
@@ -1269,7 +1276,8 @@ Apr 14, 2026</div>
               <option value="claude-sonnet-5">Claude Sonnet 5 — faster, cheaper</option>
               <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — fastest, cheapest</option>
             </select>
-            <button id="assistant-change-key-btn" class="small-btn" style="margin-left: auto">change key</button>
+            <button id="assistant-clear-chat-btn" class="small-btn" style="margin-left: auto">clear chat</button>
+            <button id="assistant-change-key-btn" class="small-btn">change key</button>
           </div>
           <div id="assistant-messages" class="messages-scroll" style="flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem;"></div>
           <div style="display: flex; gap: 8px">
@@ -3133,6 +3141,23 @@ Apr 14, 2026</div>
         el.scrollIntoView({ block: 'end' });
       }
 
+      // A visible, animated "still working" line while a request to Claude
+      // is in flight — without this there is no way to tell a slow request
+      // (thinking, a large tool result) apart from a hung one.
+      function showThinking() {
+        hideThinking();
+        const el = document.createElement('div');
+        el.className = 'tool-status thinking';
+        el.id = 'assistant-thinking-line';
+        el.textContent = 'thinking…';
+        document.getElementById('assistant-messages').appendChild(el);
+        el.scrollIntoView({ block: 'end' });
+      }
+      function hideThinking() {
+        const el = document.getElementById('assistant-thinking-line');
+        if (el) el.remove();
+      }
+
       function renderAssistantTurn(role, text) {
         const wrap = document.getElementById('assistant-messages');
         const div = document.createElement('div');
@@ -3148,22 +3173,40 @@ Apr 14, 2026</div>
         const apiKey = await idbGet(API_KEY_KEY);
         const model = document.getElementById('assistant-model-select').value;
         const brief = (await idbGet(BRIEF_KEY)) || DEFAULT_BRIEF;
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model,
-            max_tokens: 4096,
-            system: brief,
-            tools: ASSISTANT_TOOLS,
-            messages,
-          }),
-        });
+        // A plain fetch() has no timeout of its own — without one, a dropped
+        // connection or an unresponsive proxy hangs forever with zero
+        // feedback, which looks identical to the app being broken. This
+        // gives a slow-but-real request up to 90s before giving up loudly.
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 90000);
+        let res;
+        try {
+          res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+              'anthropic-dangerous-direct-browser-access': 'true',
+            },
+            body: JSON.stringify({
+              model,
+              max_tokens: 4096,
+              system: brief,
+              tools: ASSISTANT_TOOLS,
+              messages,
+            }),
+            signal: controller.signal,
+          });
+        } catch (e) {
+          if (e.name === 'AbortError')
+            throw new Error(
+              'Request timed out after 90s with no response — this is usually a dropped connection or an unreachable network, not the archive itself. Try again.'
+            );
+          throw new Error('Could not reach api.anthropic.com: ' + e.message);
+        } finally {
+          clearTimeout(timeoutId);
+        }
         if (!res.ok) {
           const body = await res.text();
           let msg = body;
@@ -3184,7 +3227,13 @@ Apr 14, 2026</div>
         try {
           let stoppedReason = 'max_rounds';
           for (let round = 0; round < 8; round++) {
-            const resp = await callClaude(assistantHistory);
+            showThinking();
+            let resp;
+            try {
+              resp = await callClaude(assistantHistory);
+            } finally {
+              hideThinking();
+            }
             assistantHistory.push({ role: 'assistant', content: resp.content });
             const textBlocks = resp.content
               .filter((b) => b.type === 'text')
@@ -3260,6 +3309,13 @@ Apr 14, 2026</div>
           await idbDelete(API_KEY_KEY);
           document.getElementById('assistant-chat').style.display = 'none';
           document.getElementById('assistant-setup').style.display = 'flex';
+        });
+      document
+        .getElementById('assistant-clear-chat-btn')
+        .addEventListener('click', () => {
+          if (assistantBusy) return;
+          assistantHistory = [];
+          document.getElementById('assistant-messages').innerHTML = '';
         });
       document
         .getElementById('assistant-send-btn')
