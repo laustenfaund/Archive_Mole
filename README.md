@@ -18,7 +18,7 @@ Your archive is tied to one browser, on one device — it doesn't sync. There's 
 
 ## Usage
 
-Download `Archive_Mole.html` and open it in a browser — double-click works, no install or build step needed. The in-app **manual** button covers every feature in detail once it's open.
+Download `index.html` and open it in a browser — double-click works, no install or build step needed. The in-app **manual** button covers every feature in detail once it's open.
 
 ## Installing on your phone
 
@@ -30,11 +30,10 @@ like a real app on your home screen instead of just a bookmark.
 1. Make sure this repo is public (Settings → Danger Zone → Change
    visibility), then enable GitHub Pages (Settings → Pages → Deploy from
    branch → `main` → `/` root).
-2. Once it's live, open `https://<your-username>.github.io/Archive_Mole/Archive_Mole.html`
-   on your phone — not the repo's `github.com` page. The filename matters
-   too, since the app isn't named `index.html`.
+2. Once it's live, open `https://<your-username>.github.io/Archive_Mole/`
+   on your phone — not the repo's `github.com` page.
 3. Use your browser's "Add to Home Screen" / "Install app" option.
 
 ## License
 
-All rights reserved. This repository is shared for personal reference; reuse requires asking first.
+All rights reserved — see [`LICENSE`](LICENSE). This repository is shared for personal reference; reuse requires asking first.

@@ -1,8 +1,8 @@
 // Minimal app-shell cache so the installed page has something to show
 // offline and so Chrome/Android recognize this as a real installable PWA.
 // This only caches the static shell, never any of your archive data.
-const CACHE = 'archive-mole-shell-v3';
-const ASSETS = ['./', './Archive_Mole.html', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
+const CACHE = 'archive-mole-shell-v4';
+const ASSETS = ['./', './index.html', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
