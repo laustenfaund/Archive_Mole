@@ -2,7 +2,7 @@
   "name": "Archive Mole",
   "short_name": "Arch Mole",
   "description": "Personal conversation database — search, filter, and browse your exported chat archives.",
-  "start_url": "./Archive_Mole.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f2ede1",
