@@ -1161,7 +1161,7 @@ Apr 14, 2026</div>
       </div>
     </div>
 
-    <div id="manual-overlay" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 9999; align-items: center; justify-content: center;">
+    <div id="manual-overlay" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 9999; align-items: center; justify-content: center; isolation: isolate; transform: translateZ(0); overflow: hidden;">
       <div style="
           background: var(--bg2);
           border: 1px solid var(--border);
@@ -1173,6 +1173,8 @@ Apr 14, 2026</div>
           display: flex;
           flex-direction: column;
           gap: 10px;
+          isolation: isolate;
+          transform: translateZ(0);
         ">
         <div style="display: flex; align-items: center; justify-content: space-between; color: var(--text); font-family: var(--sans);">
           <div style="font-weight: 600">Archive Mole — Manual</div>
@@ -2940,6 +2942,18 @@ Apr 14, 2026</div>
     </main>
   </div>
 </div>
+<script>
+  // Handle TOC clicks ourselves instead of native #hash navigation — on some
+  // mobile browsers, native anchor-jumps inside a srcdoc iframe can trigger a
+  // scroll/reflow that visibly bleeds through to the page behind this modal.
+  document.querySelectorAll('.toc a[href^="#"]').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const target = document.getElementById(a.getAttribute('href').slice(1));
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+<\/script>
 `;
       const manualFrame = document.getElementById('manual-frame');
       let manualLoaded = false;
