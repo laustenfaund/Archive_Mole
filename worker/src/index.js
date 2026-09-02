@@ -39,7 +39,7 @@
 const PRICING = {
   'claude-sonnet-5': { in: 2, out: 10 },
   'claude-opus-5': { in: 5, out: 25 },
-  'claude-haiku-4-5-20251001': { in: 1, out: 5 },
+  'claude-haiku-4-5': { in: 1, out: 5 },
 };
 const ALLOWED_MODELS = Object.keys(PRICING);
 
