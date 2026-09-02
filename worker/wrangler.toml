@@ -1,0 +1,29 @@
+name = "archive-mole-assistant"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# --- Non-secret config ---
+# Exact origin the hosted/index.html clone is served from (no trailing
+# slash). Requests from any other Origin are rejected before the passcode
+# is even checked. Example: "https://yourname.github.io"
+[vars]
+ALLOWED_ORIGIN = "https://REPLACE-WITH-YOUR-ORIGIN"
+
+# Cents, not dollars. $5.00/day per passcode, $20.00/month total.
+PER_USER_DAILY_CAP_CENTS = "500"
+GLOBAL_MONTHLY_CAP_CENTS = "2000"
+
+# --- KV namespaces ---
+# Create with `wrangler kv namespace create USAGE` and
+# `wrangler kv namespace create PASSCODES`, then paste the printed ids below.
+[[kv_namespaces]]
+binding = "USAGE"
+id = "REPLACE-WITH-USAGE-NAMESPACE-ID"
+
+[[kv_namespaces]]
+binding = "PASSCODES"
+id = "REPLACE-WITH-PASSCODES-NAMESPACE-ID"
+
+# --- Secret ---
+# Set with: wrangler secret put ANTHROPIC_API_KEY
+# Never put the real key in this file.
