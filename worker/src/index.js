@@ -32,11 +32,13 @@
 //    this wrong in the "too cheap" direction means the cap enforces less
 //    protection than you think.
 
-// Dollars per million tokens. PLACEHOLDERS — verify against your own
-// Anthropic console before relying on the caps below.
+// Dollars per million tokens. Verified against Anthropic's published
+// pricing (docs.claude.com/en/docs/about-claude/pricing) as of this
+// writing — rates can change, so recheck there if the caps below ever
+// seem to be tripping at the wrong point.
 const PRICING = {
-  'claude-sonnet-5': { in: 3, out: 15 },
-  'claude-opus-5': { in: 15, out: 75 },
+  'claude-sonnet-5': { in: 2, out: 10 },
+  'claude-opus-5': { in: 5, out: 25 },
   'claude-haiku-4-5-20251001': { in: 1, out: 5 },
 };
 const ALLOWED_MODELS = Object.keys(PRICING);
