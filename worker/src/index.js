@@ -76,6 +76,18 @@ export default {
     const origin = request.headers.get('Origin') || '';
     const cors = corsHeaders(env, origin);
 
+    // Pre-auth throttle, checked before anything else — including OPTIONS,
+    // which otherwise costs a Worker invocation with no rate limit at all.
+    // CF-Connecting-IP is set by Cloudflare at the edge, so a client can't
+    // spoof it to dodge this.
+    const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const ipRateKey = `iprate:${clientIp}:${Math.floor(Date.now() / 60000)}`;
+    const ipRateCount = (await readInt(env.USAGE, ipRateKey)) + 1;
+    if (ipRateCount > IP_RATE_LIMIT_PER_MINUTE) {
+      return jsonError(429, 'Too many requests from this address. Try again shortly.', cors);
+    }
+    await env.USAGE.put(ipRateKey, String(ipRateCount), { expirationTtl: TTL_MINUTE });
+
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors });
     }
@@ -95,14 +107,6 @@ export default {
     if (!env.ALLOWED_ORIGIN || origin !== env.ALLOWED_ORIGIN) {
       return jsonError(403, 'Origin not allowed', cors);
     }
-
-    const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
-    const ipRateKey = `iprate:${clientIp}:${Math.floor(Date.now() / 60000)}`;
-    const ipRateCount = (await readInt(env.USAGE, ipRateKey)) + 1;
-    if (ipRateCount > IP_RATE_LIMIT_PER_MINUTE) {
-      return jsonError(429, 'Too many requests from this address. Try again shortly.', cors);
-    }
-    await env.USAGE.put(ipRateKey, String(ipRateCount), { expirationTtl: TTL_MINUTE });
 
     const passcode = request.headers.get('x-passcode') || '';
     if (!passcode) return jsonError(401, 'Missing passcode', cors);
@@ -239,6 +243,10 @@ function corsHeaders(env, origin) {
     'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || 'null',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'content-type, x-passcode',
+    // Lets the browser cache a preflight for a day instead of re-sending an
+    // OPTIONS request before every single POST — halves real request volume
+    // against the Workers free-tier quota, on top of the throttle above.
+    'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
 }
