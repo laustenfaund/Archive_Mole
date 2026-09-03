@@ -9,9 +9,12 @@ compatibility_date = "2025-01-01"
 [vars]
 ALLOWED_ORIGIN = "https://laustenfaund.github.io"
 
-# Cents, not dollars. $5.00/day per passcode, $20.00/month total.
-PER_USER_DAILY_CAP_CENTS = "500"
-GLOBAL_MONTHLY_CAP_CENTS = "2000"
+# Cents, not dollars. $10.00/day per passcode, $40.00/month total.
+# Sized higher than the other three apps' proxies: the assistant here does
+# multi-turn tool-calling (search/read the archive), so one user question
+# can fire several upstream requests, not just one.
+PER_USER_DAILY_CAP_CENTS = "1000"
+GLOBAL_MONTHLY_CAP_CENTS = "4000"
 
 # --- KV namespaces ---
 # Create with `wrangler kv namespace create USAGE` and

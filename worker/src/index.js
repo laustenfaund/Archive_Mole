@@ -48,9 +48,12 @@ const ALLOWED_MODELS = Object.keys(PRICING);
 const CACHE_WRITE_MULTIPLIER = 1.25;
 const CACHE_READ_MULTIPLIER = 0.1;
 
-// The app's own callClaude() always asked for this; enforced here too so a
-// tampered client request can't raise it.
-const MAX_OUTPUT_TOKENS = 4096;
+// Archive Mole's own callClaude() doesn't send max_tokens today, so this
+// also serves as the default when the client omits it — 4096 is the value
+// this app has always used. Honors whatever a client does ask for, but
+// never above this ceiling, since a tampered request could otherwise ask
+// for far more than any real feature needs.
+const MAX_OUTPUT_TOKENS_CEILING = 4096;
 
 // Coarse anti-hammering limit, independent of the cost cap below — caps
 // how many requests per passcode can even be attempted per minute.
@@ -119,12 +122,13 @@ export default {
     const model = body.model;
 
     // Rebuild the outgoing request from scratch rather than forwarding the
-    // client's body verbatim — max_tokens in particular is fixed here, not
-    // trusted from the client, since it's the single biggest lever on cost
-    // per call.
+    // client's body verbatim — max_tokens in particular is clamped here,
+    // not trusted from the client as-is, since it's the single biggest
+    // lever on cost per call.
+    const maxTokens = clamp(parseInt(body.max_tokens, 10) || 4096, 1, MAX_OUTPUT_TOKENS_CEILING);
     const outgoing = {
       model,
-      max_tokens: MAX_OUTPUT_TOKENS,
+      max_tokens: maxTokens,
       system: body.system,
       tools: body.tools,
       output_config: body.output_config,
@@ -144,7 +148,7 @@ export default {
       readInt(env.USAGE, globalMonthKey),
     ]);
 
-    const estimateCents = estimateCostCents(model, outgoing);
+    const estimateCents = estimateCostCents(model, outgoing, maxTokens);
 
     if (userSpent + estimateCents > perUserCapCents) {
       return jsonError(
@@ -223,6 +227,10 @@ function corsHeaders(env, origin) {
   };
 }
 
+function clamp(n, lo, hi) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
 function jsonError(status, message, cors) {
   return new Response(JSON.stringify({ error: { message } }), {
     status,
@@ -272,11 +280,11 @@ function estimateInputTokens(outgoing) {
   return Math.ceil(JSON.stringify(outgoing).length / 3);
 }
 
-function estimateCostCents(model, outgoing) {
+function estimateCostCents(model, outgoing, maxTokens) {
   const price = PRICING[model];
   const inputTokens = estimateInputTokens(outgoing);
   const inCost = (inputTokens * price.in) / 1e6;
-  const outCost = (MAX_OUTPUT_TOKENS * price.out) / 1e6;
+  const outCost = (maxTokens * price.out) / 1e6;
   return Math.ceil((inCost + outCost) * 100);
 }
 
