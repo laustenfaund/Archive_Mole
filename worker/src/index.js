@@ -59,6 +59,14 @@ const MAX_OUTPUT_TOKENS_CEILING = 4096;
 // how many requests per passcode can even be attempted per minute.
 const RATE_LIMIT_PER_MINUTE = 10;
 
+// Pre-auth throttle, checked before the passcode is even looked up. Without
+// this, a request with no passcode or a wrong one skips RATE_LIMIT_PER_MINUTE
+// entirely — that one only ever runs after a passcode has already been
+// validated — so junk/missing passcodes previously faced no rate limiting at
+// all. CF-Connecting-IP is set by Cloudflare at the edge, so a client can't
+// spoof it to dodge this.
+const IP_RATE_LIMIT_PER_MINUTE = 20;
+
 const TTL_DAY = 60 * 60 * 24 * 2; // usage keys outlive a day so late writes still land
 const TTL_MONTH = 60 * 60 * 24 * 40;
 const TTL_MINUTE = 120;
@@ -87,6 +95,14 @@ export default {
     if (!env.ALLOWED_ORIGIN || origin !== env.ALLOWED_ORIGIN) {
       return jsonError(403, 'Origin not allowed', cors);
     }
+
+    const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const ipRateKey = `iprate:${clientIp}:${Math.floor(Date.now() / 60000)}`;
+    const ipRateCount = (await readInt(env.USAGE, ipRateKey)) + 1;
+    if (ipRateCount > IP_RATE_LIMIT_PER_MINUTE) {
+      return jsonError(429, 'Too many requests from this address. Try again shortly.', cors);
+    }
+    await env.USAGE.put(ipRateKey, String(ipRateCount), { expirationTtl: TTL_MINUTE });
 
     const passcode = request.headers.get('x-passcode') || '';
     if (!passcode) return jsonError(401, 'Missing passcode', cors);
