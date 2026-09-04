@@ -2,9 +2,19 @@
 //
 // Sits between the hosted/index.html clone and api.anthropic.com. It holds
 // the real Anthropic API key (as a Worker secret, never in this source),
-// gates access behind a passcode, and enforces a hard spending cap before
-// ever placing the upstream call — not just after, which would let a burst
-// of concurrent requests all slip through before any of them get counted.
+// gates access behind a per-visitor credential, and enforces a hard
+// spending cap before ever placing the upstream call — not just after,
+// which would let a burst of concurrent requests all slip through before
+// any of them get counted.
+//
+// Credentials are entries in the PASSCODES KV keyed by `passcode:<hash>`,
+// and come from two sources that are otherwise indistinguishable to the
+// rest of this file: a human-issued passcode you hand out yourself (see
+// worker/scripts/add-passcode.mjs), or a token a visitor's browser mints
+// for itself on first use by calling POST /v1/register below. Either way
+// each credential gets its own independent daily cap, keyed off
+// record.name — see handleRegister() for the self-service path and its
+// own, stricter, per-IP rate limit.
 //
 // Threat model this defends against: a small invited group, one of whom
 // runs a buggy loop or a much heavier session than expected. It is NOT
@@ -24,8 +34,11 @@
 //    → paste your real key when prompted; it is never written to disk here
 // 3. Edit ALLOWED_ORIGIN in wrangler.toml to the exact origin hosted/ is
 //    served from (e.g. https://yourname.github.io — no trailing slash).
-// 4. Add at least one passcode with worker/scripts/add-passcode.mjs
-//    (see worker/README.md).
+// 4. Nothing else needed for access — hosted/index.html self-registers a
+//    per-visitor token against POST /v1/register on first use. You can
+//    still hand-issue a passcode with worker/scripts/add-passcode.mjs for
+//    someone you want to invite directly (see worker/README.md); both
+//    kinds of credential live in the same PASSCODES KV and work the same.
 // 5. VERIFY the PRICING table below against your current Anthropic console
 //    pricing (console.anthropic.com → Settings → Billing, or
 //    docs.anthropic.com pricing page) before trusting the caps. Getting
@@ -59,6 +72,13 @@ const MAX_OUTPUT_TOKENS_CEILING = 4096;
 // how many requests per passcode can even be attempted per minute.
 const RATE_LIMIT_PER_MINUTE = 10;
 
+// /v1/register mints a brand-new per-person daily-cap bucket on every
+// successful call — that makes it the one thing standing between "one
+// abuser, capped" and "one abuser, capped N thousand times over." This is
+// deliberately much tighter than RATE_LIMIT_PER_MINUTE above, and per-IP
+// rather than per-passcode since there's no passcode yet at this point.
+const REGISTER_LIMIT_PER_HOUR = 5;
+
 // Pre-auth throttle, checked before the passcode is even looked up. Without
 // this, a request with no passcode or a wrong one skips RATE_LIMIT_PER_MINUTE
 // entirely — that one only ever runs after a passcode has already been
@@ -70,6 +90,7 @@ const IP_RATE_LIMIT_PER_MINUTE = 20;
 const TTL_DAY = 60 * 60 * 24 * 2; // usage keys outlive a day so late writes still land
 const TTL_MONTH = 60 * 60 * 24 * 40;
 const TTL_MINUTE = 120;
+const TTL_HOUR = 60 * 60 * 2;
 
 export default {
   async fetch(request, env) {
@@ -93,6 +114,11 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    if (url.pathname === '/v1/register') {
+      return handleRegister(request, env, cors, clientIp);
+    }
+
     if (url.pathname !== '/v1/messages') {
       return jsonError(404, 'Not found', cors);
     }
@@ -237,6 +263,63 @@ export default {
     });
   },
 };
+
+// Silently mints a fresh per-visitor credential so hosted/index.html never
+// has to show a passcode-entry screen. Writes to the same PASSCODES KV and
+// under the same `passcode:<hash>` key shape the hand-issued passcodes use
+// — the /v1/messages handler above doesn't know or care whether a given
+// record came from here or from a human typing `wrangler kv key put`, so
+// the existing per-user daily cap, rate limit, and revoke-by-flipping-
+// `active` path all apply to auto-issued tokens for free.
+//
+// The raw token is returned exactly once and never stored server-side —
+// only its hash is, same guarantee as a hand-issued passcode.
+async function handleRegister(request, env, cors, clientIp) {
+  if (request.method !== 'POST') {
+    return jsonError(405, 'Method not allowed', cors);
+  }
+
+  // Same origin check as /v1/messages — not real access control (a
+  // non-browser client can forge Origin), but it stops other websites from
+  // minting tokens against this budget through a visitor's browser.
+  const origin = request.headers.get('Origin') || '';
+  if (!env.ALLOWED_ORIGIN || origin !== env.ALLOWED_ORIGIN) {
+    return jsonError(403, 'Origin not allowed', cors);
+  }
+
+  // This endpoint's own abuse guard, independent of and stricter than the
+  // per-minute limits below /v1/messages uses — see REGISTER_LIMIT_PER_HOUR
+  // above for why.
+  const hour = Math.floor(Date.now() / 3600000);
+  const registerRateKey = `registerrate:${clientIp}:${hour}`;
+  const registerCount = (await readInt(env.USAGE, registerRateKey)) + 1;
+  if (registerCount > REGISTER_LIMIT_PER_HOUR) {
+    return jsonError(
+      429,
+      `Too many registration attempts from this address — limit is ${REGISTER_LIMIT_PER_HOUR}/hour. Try again later.`,
+      cors
+    );
+  }
+  await env.USAGE.put(registerRateKey, String(registerCount), { expirationTtl: TTL_HOUR });
+
+  const rawToken = crypto.randomUUID();
+  const tokenHash = await sha256Hex(rawToken);
+  const shortId = tokenHash.slice(0, 8);
+  await env.PASSCODES.put(
+    `passcode:${tokenHash}`,
+    JSON.stringify({
+      name: 'auto-' + shortId,
+      active: true,
+      autoIssued: true,
+      issuedAt: Date.now(),
+    })
+  );
+
+  return new Response(JSON.stringify({ token: rawToken }), {
+    status: 200,
+    headers: { ...cors, 'content-type': 'application/json' },
+  });
+}
 
 function corsHeaders(env, origin) {
   return {
