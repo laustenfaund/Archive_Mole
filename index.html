@@ -1881,7 +1881,7 @@ Apr 14, 2026</div>
             (t) =>
               `<button class="user-tag-chip${
                 activeTagFilter === t ? ' active' : ''
-              }" onclick="filterByTag('${t}')">${t}</button>`
+              }" onclick="filterByTag(${jsAttr(t)})">${esc(t)}</button>`
           )
           .join('');
       }
@@ -2165,7 +2165,7 @@ Apr 14, 2026</div>
         row.innerHTML = `${tags
           .map(
             (t) =>
-              `<span class="conv-user-tag">${t}<button onclick="removeTag(${convIdJs},${jsAttr(
+              `<span class="conv-user-tag">${esc(t)}<button onclick="removeTag(${convIdJs},${jsAttr(
                 t
               )});rerenderTags(${gIdx},${convIdJs})" aria-label="remove">×</button></span>`
           )
@@ -2247,7 +2247,7 @@ Apr 14, 2026</div>
         document.getElementById('search-tags').innerHTML = searchTerms
           .map(
             (t) =>
-              `<span class="search-tag">${t}<button onclick="removeSearchTerm('${t}')" aria-label="remove">×</button></span>`
+              `<span class="search-tag">${esc(t)}<button onclick="removeSearchTerm(${jsAttr(t)})" aria-label="remove">×</button></span>`
           )
           .join('');
       }
