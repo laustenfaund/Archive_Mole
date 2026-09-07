@@ -1,0 +1,44 @@
+name = "archive-mole-invite"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# --- Non-secret config ---
+# This is a SEPARATE Worker from archive-mole-assistant (worker/), deployed
+# on purpose: this one runs /v1/register (see src/index.js), which lets
+# anyone who can reach it mint their own working, capped credential with no
+# invite step. That's fine for invite/index.html, which sits behind
+# Cloudflare Access on its own Cloudflare Pages project — but it must never
+# be deployed as the archive-mole-assistant Worker that backs the public,
+# passcode-only hosted/index.html, since that would let anyone curl a free
+# token there too and bypass the passcode entirely.
+#
+# ALLOWED_ORIGIN below must be the exact origin the Cloudflare Pages site
+# serving invite/index.html ends up at (its *.pages.dev URL or your custom
+# domain) — no trailing slash. Requests from any other Origin are rejected
+# before a credential is even checked or minted.
+[vars]
+ALLOWED_ORIGIN = "https://REPLACE-WITH-YOUR-INVITE-PAGES-URL.pages.dev"
+
+# Cents, not dollars. Deliberately lower than worker/wrangler.toml's caps:
+# every visitor here gets a bucket for free with no invite step, so
+# worst-case spend is a function of these numbers alone, not of how many
+# passcodes you were willing to hand out. Start conservative and raise
+# only after watching real usage — these are placeholders, pick real
+# numbers before deploying.
+PER_USER_DAILY_CAP_CENTS = "300"
+GLOBAL_MONTHLY_CAP_CENTS = "1500"
+
+# --- KV namespaces ---
+# Create with `wrangler kv namespace create USAGE` and
+# `wrangler kv namespace create PASSCODES`, then paste the printed ids below.
+[[kv_namespaces]]
+binding = "USAGE"
+id = "REPLACE-WITH-USAGE-NAMESPACE-ID"
+
+[[kv_namespaces]]
+binding = "PASSCODES"
+id = "REPLACE-WITH-PASSCODES-NAMESPACE-ID"
+
+# --- Secret ---
+# Set with: wrangler secret put ANTHROPIC_API_KEY
+# Never put the real key in this file.
