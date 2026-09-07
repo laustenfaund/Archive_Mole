@@ -1,0 +1,35 @@
+name = "archive-mole-creator"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# --- Non-secret config ---
+# Exact origin the creator/index.html clone is served from (no trailing
+# slash). Requests from any other Origin are rejected before the passcode
+# is even checked. Example: "https://yourname.github.io"
+[vars]
+ALLOWED_ORIGIN = "https://laustenfaund.github.io"
+
+# No spend caps here on purpose — this is the uncapped, owner-only proxy.
+# See src/index.js for what's still in place (a passcode gate and a
+# bug-loop rate-limit guard, not a budget control).
+
+# --- KV namespaces ---
+# Create with `wrangler kv namespace create USAGE` and
+# `wrangler kv namespace create PASSCODES`, then paste the printed ids
+# below. Use NEW namespaces here — do not reuse worker/'s. This Worker's
+# USAGE entries are pure rate-limit counters, not spend tracking, and
+# mixing them with the guest-facing Worker's spend data would be
+# confusing even though the key prefixes don't literally collide.
+[[kv_namespaces]]
+binding = "USAGE"
+id = "REPLACE-WITH-USAGE-NAMESPACE-ID"
+
+[[kv_namespaces]]
+binding = "PASSCODES"
+id = "REPLACE-WITH-PASSCODES-NAMESPACE-ID"
+
+# --- Secret ---
+# Set with: wrangler secret put ANTHROPIC_API_KEY
+# Never put the real key in this file. Can be the same key as worker/'s
+# secret, or a different one if you want your own usage to show up
+# separately in the Anthropic console.
