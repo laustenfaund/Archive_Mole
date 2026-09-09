@@ -1328,11 +1328,11 @@ Apr 14, 2026</div>
 
       Phase 3: Flag the highest signal candidates based on recurring themes, dense keyword hits, or user tagged importance. Keep a record of lower priority items rather than discarding them.
 
-      Phase 4: Read only the flagged items closely and pull short verbatim grounding snippets. Anything not directly observed stays out of the output, or is clearly labeled as inference.
+      Phase 4: Read only the flagged items closely and pull short verbatim grounding snippets, recording each one as a finding before moving to the next item. Anything not directly observed stays out of the output, or is clearly labeled as inference.
 
       Phase 5: Write the synthesis in chunks matching the time range, applying exclusion rules throughout. Pause for a simple continue signal between chunks.
 
-      Phase 6: Consolidate progress at natural break points so context is never lost.
+      Phase 6: Consolidate progress at natural break points so context is never lost — the recorded findings are that consolidation; lean on them rather than re-reading.
 
       Phase 7: When new data is added later, only rerun Phase 2 on the new material and merge results into the existing catalog rather than starting over.`;
       let allConversations = [],
@@ -2883,7 +2883,7 @@ Apr 14, 2026</div>
           <p class="note-label">What this changes about privacy</p>
           <p>Everything else in Archive Mole stays local — this is the one feature that leaves the browser. Once you provide a key, each message you send is sent, along with the brief and whatever the assistant chooses to read from your archive, directly from this browser to <code>api.anthropic.com</code>. Nothing passes through any server of ours — the request goes straight from your device to Anthropic's, the same as if you'd built this against their API yourself. The key is stored in this browser's local database, next to the rest of your archive; the <span class="ui">change key</span> button clears it.</p>
         </div>
-        <p>The assistant works by calling tools that mirror the app's own controls — filtering by platform, date, and tag; keyword-scoring across a scoped set; and reading one conversation's full text — so it follows the brief's own phases (scope, catalog, flag, read) instead of reading everything at once. A <span class="ui">model</span> dropdown trades capability for cost, and an <span class="ui">effort</span> dropdown does the same for how much the model reasons before answering — both are yours to dial down, since it's your key being billed.</p>
+        <p>The assistant works by calling tools that mirror the app's own controls — filtering by platform, date, and tag; keyword-scoring across a scoped set; reading one conversation's full text; and recording a short quote-plus-note finding — so it follows the brief's own phases (scope, catalog, flag, read, record) instead of reading everything at once. Once a conversation's full text has had one extra round to be acted on, it's dropped from what gets resent to Anthropic on later rounds of the same chat, replaced by a short placeholder — the recorded findings are what's kept instead, so token spend doesn't keep climbing every round a long search runs. A <span class="ui">model</span> dropdown trades capability for cost, and an <span class="ui">effort</span> dropdown does the same for how much the model reasons before answering — both are yours to dial down, since it's your key being billed.</p>
         <p>While a message is in flight, <span class="ui">send</span> turns into <span class="ui">stop</span> — click it to cancel the request outright, rather than waiting it out. <span class="ui">clear chat</span> wipes the conversation, including everything the assistant has read or remembered so far this session, so your next message starts with no leftover context.</p>
         <div class="warn">
           <p class="note-label">Usage is billed to your key</p>
@@ -3055,6 +3055,7 @@ Apr 14, 2026</div>
       // key the user supplies and this browser stores. Nothing here ever
       // sends the key or archive content anywhere except api.anthropic.com.
       let assistantHistory = [];
+      let assistantFindings = [];
       let assistantBusy = false;
       let assistantAbortController = null;
       let assistantUserStopped = false;
@@ -3125,6 +3126,24 @@ Apr 14, 2026</div>
         };
       }
 
+      // Findings accumulate for the whole chat (cleared with the chat, on
+      // "clear chat") and exist for two reasons: they're the record the
+      // assistant is actually building toward, and they're what
+      // compactHistory() below points to once it drops a full
+      // read_conversation result from context.
+      function toolRecordFinding(input) {
+        if (!input.id || !input.note)
+          return { error: 'id and note are both required' };
+        const conv = allConversations.find((c) => c.id === input.id);
+        assistantFindings.push({
+          id: input.id,
+          title: conv ? conv.title : null,
+          quote: input.quote || null,
+          note: input.note,
+        });
+        return { recorded: true, totalFindings: assistantFindings.length };
+      }
+
       const ASSISTANT_TOOLS = [
         {
           name: 'filter_conversations',
@@ -3157,11 +3176,25 @@ Apr 14, 2026</div>
         {
           name: 'read_conversation',
           description:
-            'Return the full verbatim messages of one conversation by id. This is the expensive, close-reading step — use it only for conversations already flagged as high-signal.',
+            'Return the full verbatim messages of one conversation by id. This is the expensive, close-reading step — use it only for conversations already flagged as high-signal. The full text is only visible for this round and the next; call record_finding before moving on to another conversation, or the detail is gone from context (though the conversation can always be re-read).',
           input_schema: {
             type: 'object',
             properties: { id: { type: 'string' } },
             required: ['id'],
+          },
+        },
+        {
+          name: 'record_finding',
+          description:
+            "Log one compact, citable finding — a short verbatim quote plus why it matters. Call this right after read_conversation, before reading the next conversation: it's what lets the full text you just read be dropped from context on a later round without losing what you found in it. Findings accumulate for the whole chat session and are the basis for the synthesis you write at the end, so record as you go rather than trying to hold everything in memory.",
+          input_schema: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'conversation id this finding is about' },
+              quote: { type: 'string', description: 'short verbatim excerpt grounding the finding' },
+              note: { type: 'string', description: "why this matters / what it's evidence of" },
+            },
+            required: ['id', 'note'],
           },
         },
       ];
@@ -3174,6 +3207,8 @@ Apr 14, 2026</div>
             return toolSearchConversations(input || {});
           if (name === 'read_conversation')
             return toolReadConversation(input || {});
+          if (name === 'record_finding')
+            return toolRecordFinding(input || {});
           return { error: 'unknown tool: ' + name };
         } catch (e) {
           return { error: String((e && e.message) || e) };
@@ -3239,6 +3274,46 @@ Apr 14, 2026</div>
         last.content = content;
         cloned.push(last);
         return cloned;
+      }
+
+      // Drops the full text of older read_conversation results out of the
+      // history that gets sent to the API, once they're no longer the most
+      // recent tool result — replacing each with a short placeholder that
+      // points at whatever record_finding calls exist for that id.
+      // Everything else (search results, filter results, findings
+      // themselves) is already compact and is left alone. This mutates the
+      // module-level history permanently: once dropped, full text isn't
+      // resent even if the assistant asks about that id again in a later
+      // message — it would need to call read_conversation again.
+      function compactHistory(history) {
+        let lastToolResultIdx = -1;
+        for (let i = history.length - 1; i >= 0; i--) {
+          if (history[i].role === 'user' && Array.isArray(history[i].content)) {
+            lastToolResultIdx = i;
+            break;
+          }
+        }
+        for (let i = 0; i < history.length; i++) {
+          const msg = history[i];
+          if (i === lastToolResultIdx) continue;
+          if (msg.role !== 'user' || !Array.isArray(msg.content)) continue;
+          const prev = history[i - 1];
+          const toolUseById = {};
+          if (prev && prev.role === 'assistant' && Array.isArray(prev.content)) {
+            for (const b of prev.content) if (b.type === 'tool_use') toolUseById[b.id] = b;
+          }
+          for (const block of msg.content) {
+            if (block.type !== 'tool_result') continue;
+            const call = toolUseById[block.tool_use_id];
+            if (!call || call.name !== 'read_conversation') continue;
+            if (typeof block.content === 'string' && block.content.startsWith('[condensed]'))
+              continue;
+            block.content = `[condensed] Full text of conversation ${
+              (call.input && call.input.id) || '?'
+            } was read earlier this session and has been dropped from context to save tokens. See recorded findings for what was extracted from it, or call read_conversation again for the full text.`;
+          }
+        }
+        return history;
       }
 
       async function callClaude(messages) {
@@ -3308,6 +3383,7 @@ Apr 14, 2026</div>
         try {
           let stoppedReason = 'max_rounds';
           for (let round = 0; round < 8; round++) {
+            assistantHistory = compactHistory(assistantHistory);
             showThinking();
             let resp;
             try {
@@ -3401,6 +3477,7 @@ Apr 14, 2026</div>
         .addEventListener('click', () => {
           if (assistantBusy) return;
           assistantHistory = [];
+          assistantFindings = [];
           document.getElementById('assistant-messages').innerHTML = '';
         });
       document
