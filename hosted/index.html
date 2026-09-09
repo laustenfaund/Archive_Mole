@@ -2277,7 +2277,7 @@ Apr 14, 2026</div>
         document.getElementById('loaded-files-area').innerHTML = [
           ...loadedFileNames,
         ]
-          .map((f) => `<span class="file-tag">${f}</span>`)
+          .map((f) => `<span class="file-tag">${esc(f)}</span>`)
           .join('');
       }
 
