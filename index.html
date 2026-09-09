@@ -3397,13 +3397,13 @@ Apr 14, 2026</div>
               .map((b) => b.text)
               .join('\n\n');
             if (textBlocks) renderAssistantTurn('assistant', textBlocks);
-            if (resp.stop_reason !== 'tool_use') {
+            const toolUseBlocks = resp.content.filter((b) => b.type === 'tool_use');
+            if (!toolUseBlocks.length) {
               stoppedReason = 'done';
               break;
             }
             const toolResults = [];
-            for (const block of resp.content) {
-              if (block.type !== 'tool_use') continue;
+            for (const block of toolUseBlocks) {
               assistantStatusLine(`→ ${block.name}(${JSON.stringify(block.input)})`);
               const result = executeAssistantTool(block.name, block.input);
               toolResults.push({
