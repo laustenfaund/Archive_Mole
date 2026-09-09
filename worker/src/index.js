@@ -48,12 +48,28 @@ const ALLOWED_MODELS = Object.keys(PRICING);
 const CACHE_WRITE_MULTIPLIER = 1.25;
 const CACHE_READ_MULTIPLIER = 0.1;
 
-// Archive Mole's own callClaude() doesn't send max_tokens today, so this
-// also serves as the default when the client omits it — 4096 is the value
-// this app has always used. Honors whatever a client does ask for, but
-// never above this ceiling, since a tampered request could otherwise ask
+// Archive Mole's own callClaude() doesn't send max_tokens today, so 4096
+// also serves as the default when the client omits it — the value this app
+// has always used. Honors whatever a client does ask for, but never above
+// the ceiling for that model, since a tampered request could otherwise ask
 // for far more than any real feature needs.
-const MAX_OUTPUT_TOKENS_CEILING = 4096;
+//
+// One ceiling per model rather than a single flat value: this Worker fronts
+// your own paid key for guests, so the ceiling is sized to bound worst-case
+// cost per request, not to maximize output room. Opus 5 is the priciest
+// model per output token ($25/M vs Sonnet's $10 and Haiku's $5), so it gets
+// the tightest ceiling — a buggy loop or a much heavier session than
+// expected costs the least there per response, not the most. Values are
+// kept well under the ~21,333-token point where Anthropic requires
+// streaming to avoid client-side read timeouts — callClaude() here uses a
+// plain, non-streaming fetch. Raise a value if guests are hitting the
+// ceiling on legitimate answers and the per-user/global $ caps below are
+// the protection you'd rather rely on instead.
+const MAX_OUTPUT_TOKENS_CEILING = {
+  'claude-haiku-4-5': 8192,
+  'claude-sonnet-5': 8192,
+  'claude-opus-5': 4096,
+};
 
 // Coarse anti-hammering limit, independent of the cost cap below — caps
 // how many requests per passcode can even be attempted per minute.
@@ -145,7 +161,7 @@ export default {
     // client's body verbatim — max_tokens in particular is clamped here,
     // not trusted from the client as-is, since it's the single biggest
     // lever on cost per call.
-    const maxTokens = clamp(parseInt(body.max_tokens, 10) || 4096, 1, MAX_OUTPUT_TOKENS_CEILING);
+    const maxTokens = clamp(parseInt(body.max_tokens, 10) || 4096, 1, MAX_OUTPUT_TOKENS_CEILING[model]);
     const outgoing = {
       model,
       max_tokens: maxTokens,
