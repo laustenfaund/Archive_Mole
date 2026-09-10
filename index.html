@@ -1286,17 +1286,17 @@ Apr 14, 2026</div>
           gap: 12px;
           font-family: var(--sans);
         ">
-        <div style="display: flex; align-items: center; justify-content: space-between">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
           <div style="font-weight: 600">
             AI Assistant
             <span style="font-family: var(--mono); font-size: 11px; color: var(--text3); font-weight: 400">— bring your own API key</span>
           </div>
-          <div style="display: flex; gap: 8px; align-items: center">
-            <div id="assistant-header-controls" style="display: none; gap: 8px; align-items: center">
-              <button id="assistant-clear-chat-btn" class="small-btn">clear chat</button>
-              <button id="assistant-change-key-btn" class="small-btn">change key</button>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <div id="assistant-header-controls" style="display: none; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <button id="assistant-clear-chat-btn" class="small-btn" style="white-space: nowrap">clear chat</button>
+              <button id="assistant-change-key-btn" class="small-btn" style="white-space: nowrap">change key</button>
             </div>
-            <button id="assistant-close-btn" class="add-files-btn">close</button>
+            <button id="assistant-close-btn" class="add-files-btn" style="white-space: nowrap">close</button>
           </div>
         </div>
 
