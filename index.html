@@ -1294,6 +1294,7 @@ Apr 14, 2026</div>
           <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <div id="assistant-header-controls" style="display: none; gap: 8px; align-items: center; flex-wrap: wrap;">
               <button id="assistant-clear-chat-btn" class="small-btn" style="white-space: nowrap">clear chat</button>
+              <button id="assistant-copy-findings-btn" class="small-btn" style="white-space: nowrap">copy findings</button>
               <button id="assistant-change-key-btn" class="small-btn" style="white-space: nowrap">change key</button>
             </div>
             <button id="assistant-close-btn" class="add-files-btn" style="white-space: nowrap">close</button>
@@ -1331,6 +1332,45 @@ Apr 14, 2026</div>
             <textarea id="assistant-input" class="assistant-field assistant-textarea" style="flex: 1" rows="1" placeholder="Tell it what you're looking for..."></textarea>
             <button id="assistant-send-btn" class="add-files-btn">send</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="findings-overlay" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 9999; align-items: center; justify-content: center;">
+      <div style="
+          background: var(--bg2);
+          color: var(--text);
+          border: 1px solid var(--border);
+          padding: 20px;
+          border-radius: var(--radius2);
+          width: 600px;
+          max-width: 90vw;
+          max-height: 80vh;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          font-family: var(--sans);
+        ">
+        <div style="font-weight: 600">Compiled Findings</div>
+        <p style="font-size: 12px; color: var(--text2); margin: 0; line-height: 1.5">
+          The assistant's summary and recorded findings from this chat, compiled into plain text — paste it into a note, doc, or email. Copied to your clipboard automatically where the browser allows it; select and copy manually otherwise.
+        </p>
+        <textarea id="findings-text" readonly style="
+            flex: 1;
+            min-height: 260px;
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border2);
+            border-radius: var(--radius);
+            padding: 8px;
+            font-family: var(--mono);
+            font-size: 12px;
+            resize: vertical;
+          "></textarea>
+        <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap;">
+          <span id="findings-copy-status" style="font-size: 12px; color: var(--text3)"></span>
+          <button id="findings-copy-btn" class="small-btn" style="white-space: nowrap">copy to clipboard</button>
+          <button id="findings-close-btn" class="add-files-btn" style="white-space: nowrap">close</button>
         </div>
       </div>
     </div>
@@ -3188,6 +3228,80 @@ Apr 14, 2026</div>
         return { recorded: true, totalFindings: assistantFindings.length };
       }
 
+      // Builds the plain-text block behind the "copy findings" button: every
+      // assistant text turn so far (the running narrative — summary, plot
+      // line, whatever it's actually written) followed by the discrete
+      // record_finding citations. Pure text, no HTML — safe to paste
+      // anywhere without carrying formatting or markup along with it.
+      function compileFindingsText() {
+        const summary = assistantHistory
+          .filter((m) => m.role === 'assistant' && Array.isArray(m.content))
+          .map((m) =>
+            m.content
+              .filter((b) => b.type === 'text')
+              .map((b) => b.text)
+              .join('\n\n')
+          )
+          .filter((t) => t.trim())
+          .join('\n\n---\n\n');
+
+        const lines = [
+          'ARCHIVE MOLE — ASSISTANT FINDINGS',
+          new Date().toLocaleString(),
+          '',
+          'SUMMARY',
+          summary || '(no assistant response yet)',
+          '',
+          `FINDINGS (${assistantFindings.length})`,
+        ];
+        if (!assistantFindings.length) {
+          lines.push('(none recorded yet)');
+        } else {
+          assistantFindings.forEach((f, i) => {
+            lines.push('');
+            lines.push(`${i + 1}. ${f.title || f.id}`);
+            if (f.quote) lines.push(`   "${f.quote}"`);
+            lines.push(`   ${f.note}`);
+          });
+        }
+        return lines.join('\n');
+      }
+
+      // Tries the async Clipboard API first (blocked on some browsers when
+      // the page is opened as a plain file:// document, which this app
+      // supports); falls back to the older execCommand('copy') path, which
+      // works from a selected textarea regardless of that permission. The
+      // textarea stays visible and pre-selected either way, so a manual
+      // Ctrl+C always works even if both attempts fail.
+      async function copyTextToClipboard(text, statusEl) {
+        try {
+          await navigator.clipboard.writeText(text);
+          statusEl.textContent = 'copied to clipboard';
+          return;
+        } catch (e) {
+          // fall through to the legacy path below
+        }
+        try {
+          const ok = document.execCommand('copy');
+          statusEl.textContent = ok
+            ? 'copied to clipboard'
+            : 'select the text above and copy manually';
+        } catch (e) {
+          statusEl.textContent = 'select the text above and copy manually';
+        }
+      }
+
+      function openFindingsOverlay() {
+        const text = compileFindingsText();
+        const textarea = document.getElementById('findings-text');
+        textarea.value = text;
+        document.getElementById('findings-overlay').style.display = 'flex';
+        document.getElementById('findings-copy-status').textContent = '';
+        textarea.focus();
+        textarea.select();
+        copyTextToClipboard(text, document.getElementById('findings-copy-status'));
+      }
+
       const ASSISTANT_TOOLS = [
         {
           name: 'filter_conversations',
@@ -3512,6 +3626,28 @@ Apr 14, 2026</div>
           document.getElementById('assistant-setup').style.display = 'none';
           document.getElementById('assistant-chat').style.display = 'flex';
           document.getElementById('assistant-header-controls').style.display = 'flex';
+        });
+      document
+        .getElementById('assistant-copy-findings-btn')
+        .addEventListener('click', openFindingsOverlay);
+      document
+        .getElementById('findings-copy-btn')
+        .addEventListener('click', () => {
+          const textarea = document.getElementById('findings-text');
+          textarea.focus();
+          textarea.select();
+          copyTextToClipboard(textarea.value, document.getElementById('findings-copy-status'));
+        });
+      document
+        .getElementById('findings-close-btn')
+        .addEventListener('click', () => {
+          document.getElementById('findings-overlay').style.display = 'none';
+        });
+      document
+        .getElementById('findings-overlay')
+        .addEventListener('click', (e) => {
+          if (e.target.id === 'findings-overlay')
+            document.getElementById('findings-overlay').style.display = 'none';
         });
       document
         .getElementById('assistant-change-key-btn')
