@@ -3409,6 +3409,21 @@ Apr 14, 2026</div>
         div.scrollIntoView({ block: 'end' });
       }
 
+      // Same message bubble as renderAssistantTurn, but returns the empty
+      // .message-text node to be filled in as text deltas stream in,
+      // rather than taking a complete string up front. textContent (not
+      // innerHTML) on every append, same as esc() achieves for the
+      // non-streaming path — no HTML parsing of model output either way.
+      function createStreamingAssistantTurn() {
+        const wrap = document.getElementById('assistant-messages');
+        const div = document.createElement('div');
+        div.className = 'message';
+        div.innerHTML = `<div class="message-role assistant">AI</div><div class="message-text"></div>`;
+        wrap.appendChild(div);
+        div.scrollIntoView({ block: 'end' });
+        return div.querySelector('.message-text');
+      }
+
       // Attaches a cache_control breakpoint to the last content block of the
       // last message, without mutating the caller's history array — the
       // marker only exists in the outgoing request, never accumulates
@@ -3474,61 +3489,181 @@ Apr 14, 2026</div>
         return history;
       }
 
-      async function callClaude(messages) {
-        const apiKey = await idbGet(API_KEY_KEY);
-        const model = document.getElementById('assistant-model-select').value;
-        const effort = document.getElementById('assistant-effort-select').value;
-        const brief = (await idbGet(BRIEF_KEY)) || DEFAULT_BRIEF;
-        // A plain fetch() has no timeout of its own — without one, a dropped
-        // connection or an unresponsive proxy hangs forever with zero
-        // feedback, which looks identical to the app being broken. This
-        // gives a slow-but-real request up to 90s before giving up loudly.
+      // Applies one parsed SSE event from the Messages API stream onto the
+      // content-block array being reconstructed. Shared by every streaming
+      // caller (BYOK direct-to-Anthropic here, and the hosted proxy's own
+      // client-side parser) since the event shapes are identical either
+      // way — only the transport underneath differs.
+      function applyStreamEvent(evt, contentBlocks, onTextDelta) {
+        if (evt.type === 'content_block_start') {
+          contentBlocks[evt.index] =
+            evt.content_block.type === 'tool_use'
+              ? {
+                  type: 'tool_use',
+                  id: evt.content_block.id,
+                  name: evt.content_block.name,
+                  input: {},
+                  _partialJson: '',
+                }
+              : { ...evt.content_block };
+        } else if (evt.type === 'content_block_delta') {
+          const block = contentBlocks[evt.index];
+          if (!block) return;
+          if (evt.delta.type === 'text_delta') {
+            block.text = (block.text || '') + evt.delta.text;
+            if (onTextDelta) onTextDelta(evt.delta.text);
+          } else if (evt.delta.type === 'input_json_delta') {
+            block._partialJson = (block._partialJson || '') + evt.delta.partial_json;
+          } else if (evt.delta.type === 'thinking_delta') {
+            block.thinking = (block.thinking || '') + evt.delta.thinking;
+          }
+        } else if (evt.type === 'content_block_stop') {
+          const block = contentBlocks[evt.index];
+          if (block && block.type === 'tool_use' && block._partialJson !== undefined) {
+            try {
+              block.input = JSON.parse(block._partialJson || '{}');
+            } catch (e) {
+              block.input = {};
+            }
+            delete block._partialJson;
+          }
+        } else if (evt.type === 'error') {
+          throw new Error((evt.error && evt.error.message) || 'stream error');
+        }
+      }
+
+      // Posts one streaming Messages API request and reconstructs the same
+      // {content, stop_reason, usage} shape the old non-streaming res.json()
+      // returned, so nothing downstream (tool handling, history, findings)
+      // needs to know the transport changed. onTextDelta, if given, fires
+      // with each fragment of visible text as it arrives, for live typing.
+      //
+      // Timeout is inactivity-based rather than a flat ceiling: the timer
+      // resets on every chunk received, not just once at the start. A
+      // slow-but-actively-generating response (a large max_tokens, a hard
+      // multi-tool search) can run well past 90s total as long as
+      // something keeps arriving; only a connection that goes silent for
+      // 90s straight gets aborted. This is what makes raising max_tokens
+      // safe — the old flat-from-request-start timer had no way to tell
+      // "still working" apart from "actually stuck".
+      async function streamClaude(url, headers, body, onTextDelta) {
         const controller = new AbortController();
         assistantAbortController = controller;
-        const timeoutId = setTimeout(() => controller.abort(), 90000);
+        let timeoutId;
+        const resetTimeout = () => {
+          clearTimeout(timeoutId);
+          timeoutId = setTimeout(() => controller.abort(), 90000);
+        };
+        resetTimeout();
+
         let res;
         try {
-          res = await fetch('https://api.anthropic.com/v1/messages', {
+          res = await fetch(url, {
             method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'x-api-key': apiKey,
-              'anthropic-version': '2023-06-01',
-              'anthropic-dangerous-direct-browser-access': 'true',
-            },
-            body: JSON.stringify({
-              model,
-              max_tokens: 4096,
-              system: [
-                { type: 'text', text: brief, cache_control: { type: 'ephemeral' } },
-              ],
-              tools: ASSISTANT_TOOLS,
-              output_config: { effort },
-              messages: withCacheBreakpoint(messages),
-            }),
+            headers,
+            body: JSON.stringify({ ...body, stream: true }),
             signal: controller.signal,
           });
         } catch (e) {
+          clearTimeout(timeoutId);
+          assistantAbortController = null;
           if (e.name === 'AbortError') {
             if (assistantUserStopped) throw new Error('Stopped.');
             throw new Error(
-              'Request timed out after 90s with no response — this is usually a dropped connection or an unreachable network, not the archive itself. Try again.'
+              'Request timed out — no data received for 90s, usually a dropped connection or an unreachable network, not the archive itself. Try again.'
             );
           }
-          throw new Error('Could not reach api.anthropic.com: ' + e.message);
+          throw new Error('Could not reach ' + url + ': ' + e.message);
+        }
+
+        if (!res.ok) {
+          clearTimeout(timeoutId);
+          assistantAbortController = null;
+          const text = await res.text();
+          let msg = text;
+          try {
+            msg = JSON.parse(text).error.message;
+          } catch (e) {}
+          throw new Error(`${res.status}: ${msg}`);
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        const contentBlocks = [];
+        let stopReason = null;
+        let usage = {};
+
+        try {
+          while (true) {
+            let step;
+            try {
+              step = await reader.read();
+            } catch (e) {
+              if (assistantUserStopped) throw new Error('Stopped.');
+              throw new Error(
+                'Request timed out — no data received for 90s, usually a dropped connection or an unreachable network, not the archive itself. Try again.'
+              );
+            }
+            if (step.done) break;
+            resetTimeout();
+            buffer += decoder.decode(step.value, { stream: true });
+            const events = buffer.split('\n\n');
+            buffer = events.pop();
+            for (const raw of events) {
+              const dataLine = raw.split('\n').find((l) => l.startsWith('data:'));
+              if (!dataLine) continue;
+              let evt;
+              try {
+                evt = JSON.parse(dataLine.slice(5).trim());
+              } catch (e) {
+                continue;
+              }
+              applyStreamEvent(evt, contentBlocks, onTextDelta);
+              if (evt.type === 'message_start' && evt.message && evt.message.usage) {
+                usage = { ...usage, ...evt.message.usage };
+              }
+              if (evt.type === 'message_delta') {
+                if (evt.delta && evt.delta.stop_reason) stopReason = evt.delta.stop_reason;
+                if (evt.usage) usage = { ...usage, ...evt.usage };
+              }
+            }
+          }
         } finally {
           clearTimeout(timeoutId);
           assistantAbortController = null;
         }
-        if (!res.ok) {
-          const body = await res.text();
-          let msg = body;
-          try {
-            msg = JSON.parse(body).error.message;
-          } catch (e) {}
-          throw new Error(`${res.status}: ${msg}`);
-        }
-        return res.json();
+
+        return {
+          content: contentBlocks.filter(Boolean).map(({ _partialJson, ...b }) => b),
+          stop_reason: stopReason,
+          usage,
+        };
+      }
+
+      async function callClaude(messages, onTextDelta) {
+        const apiKey = await idbGet(API_KEY_KEY);
+        const model = document.getElementById('assistant-model-select').value;
+        const effort = document.getElementById('assistant-effort-select').value;
+        const brief = (await idbGet(BRIEF_KEY)) || DEFAULT_BRIEF;
+        return streamClaude(
+          'https://api.anthropic.com/v1/messages',
+          {
+            'content-type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          {
+            model,
+            max_tokens: 4096,
+            system: [{ type: 'text', text: brief, cache_control: { type: 'ephemeral' } }],
+            tools: ASSISTANT_TOOLS,
+            output_config: { effort },
+            messages: withCacheBreakpoint(messages),
+          },
+          onTextDelta
+        );
       }
 
       async function runAssistantLoop(userText) {
@@ -3543,18 +3678,25 @@ Apr 14, 2026</div>
           for (let round = 0; round < 8; round++) {
             assistantHistory = compactHistory(assistantHistory);
             showThinking();
+            // Created lazily on the first text delta, not up front — a
+            // round that goes straight to tool calls with no visible text
+            // never gets an empty bubble left behind.
+            let liveTextEl = null;
+            const onTextDelta = (delta) => {
+              if (!liveTextEl) {
+                hideThinking();
+                liveTextEl = createStreamingAssistantTurn();
+              }
+              liveTextEl.textContent += delta;
+              liveTextEl.parentElement.scrollIntoView({ block: 'end' });
+            };
             let resp;
             try {
-              resp = await callClaude(assistantHistory);
+              resp = await callClaude(assistantHistory, onTextDelta);
             } finally {
               hideThinking();
             }
             assistantHistory.push({ role: 'assistant', content: resp.content });
-            const textBlocks = resp.content
-              .filter((b) => b.type === 'text')
-              .map((b) => b.text)
-              .join('\n\n');
-            if (textBlocks) renderAssistantTurn('assistant', textBlocks);
             const toolUseBlocks = resp.content.filter((b) => b.type === 'tool_use');
             if (!toolUseBlocks.length) {
               stoppedReason = 'done';

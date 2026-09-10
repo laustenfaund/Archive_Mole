@@ -6,6 +6,13 @@
 // ever placing the upstream call — not just after, which would let a burst
 // of concurrent requests all slip through before any of them get counted.
 //
+// Streams the response straight through rather than buffering it: the
+// client reads it as an ordinary SSE stream, and this Worker's own cost
+// accounting is reconciled from a second, independent copy of the same
+// stream (via ReadableStream.tee()) read in the background after the
+// response has already gone out (ctx.waitUntil), so streaming adds no
+// extra latency for the client. See the tee() call below for why.
+//
 // Threat model this defends against: a small invited group, one of whom
 // runs a buggy loop or a much heavier session than expected. It is NOT
 // hardened against a sophisticated attacker deliberately racing this
@@ -59,10 +66,10 @@ const CACHE_READ_MULTIPLIER = 0.1;
 // cost per request, not to maximize output room. Opus 5 is the priciest
 // model per output token ($25/M vs Sonnet's $10 and Haiku's $5), so it gets
 // the tightest ceiling — a buggy loop or a much heavier session than
-// expected costs the least there per response, not the most. Values are
-// kept well under the ~21,333-token point where Anthropic requires
-// streaming to avoid client-side read timeouts — callClaude() here uses a
-// plain, non-streaming fetch. Raise a value if guests are hitting the
+// expected costs the least there per response, not the most. Now that
+// responses are streamed through rather than buffered, these are no
+// longer bounded by the client-timeout risk a large non-streaming
+// max_tokens used to carry — raise a value if guests are hitting the
 // ceiling on legitimate answers and the per-user/global $ caps below are
 // the protection you'd rather rely on instead.
 const MAX_OUTPUT_TOKENS_CEILING = {
@@ -88,7 +95,7 @@ const TTL_MONTH = 60 * 60 * 24 * 40;
 const TTL_MINUTE = 120;
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const origin = request.headers.get('Origin') || '';
     const cors = corsHeaders(env, origin);
 
@@ -165,6 +172,7 @@ export default {
     const outgoing = {
       model,
       max_tokens: maxTokens,
+      stream: true,
       system: body.system,
       tools: body.tools,
       output_config: body.output_config,
@@ -231,25 +239,36 @@ export default {
       return jsonError(502, 'Could not reach Anthropic: ' + e.message, cors);
     }
 
-    const text = await upstream.text();
-    let parsed = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // leave parsed null
-    }
-
-    if (upstream.ok && parsed && parsed.usage) {
-      const actualCents = actualCostCents(model, parsed.usage);
-      await reconcileReservation(env, userDayKey, globalMonthKey, estimateCents, actualCents);
-    } else {
-      // Upstream call failed outright — nothing was billed, release the hold.
+    if (!upstream.ok) {
+      // A rejected request (bad auth, bad params, a cap Anthropic itself
+      // enforces) never starts streaming — it comes back as an ordinary
+      // buffered JSON error body, same as the old non-streaming path, so
+      // handle it exactly the same way: nothing was billed, release the
+      // hold and relay the error as-is.
+      const text = await upstream.text();
       await releaseReservation(env, userDayKey, globalMonthKey, estimateCents);
+      return new Response(text, {
+        status: upstream.status,
+        headers: { ...cors, 'content-type': 'application/json' },
+      });
     }
 
-    return new Response(text, {
+    // Split the stream in two: one copy goes straight to the browser as it
+    // arrives (so a large max_tokens no longer risks the client's own
+    // read timeout — see index.html/hosted's streamClaude()), the other is
+    // read here to recover the final `usage` object once the stream ends,
+    // for the same cost reconciliation the old buffered path did from the
+    // parsed JSON body. ctx.waitUntil keeps that second read running after
+    // the response has already been returned, so it adds no latency for
+    // the client either way.
+    const [clientStream, accountingStream] = upstream.body.tee();
+    ctx.waitUntil(
+      reconcileFromStream(accountingStream, env, model, userDayKey, globalMonthKey, estimateCents)
+    );
+
+    return new Response(clientStream, {
       status: upstream.status,
-      headers: { ...cors, 'content-type': 'application/json' },
+      headers: { ...cors, 'content-type': 'text/event-stream' },
     });
   },
 };
@@ -311,6 +330,60 @@ async function reconcileReservation(env, userDayKey, globalMonthKey, estimateCen
       expirationTtl: TTL_MONTH,
     }),
   ]);
+}
+
+// Reads one branch of the tee'd upstream SSE stream purely to recover the
+// final `usage` object — it only appears in the message_start and
+// message_delta events, not as a separate field anywhere else — then
+// reconciles the spend reservation to the real cost, same accounting the
+// old buffered path did from the parsed JSON body. Runs via ctx.waitUntil
+// after the response has already gone out; never touches the copy of the
+// stream the client is reading.
+async function reconcileFromStream(stream, env, model, userDayKey, globalMonthKey, estimateCents) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let usage = {};
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop();
+      for (const raw of events) {
+        const dataLine = raw.split('\n').find((l) => l.startsWith('data:'));
+        if (!dataLine) continue;
+        let evt;
+        try {
+          evt = JSON.parse(dataLine.slice(5).trim());
+        } catch {
+          continue;
+        }
+        if (evt.type === 'message_start' && evt.message && evt.message.usage) {
+          usage = { ...usage, ...evt.message.usage };
+        }
+        if (evt.type === 'message_delta' && evt.usage) {
+          usage = { ...usage, ...evt.usage };
+        }
+      }
+    }
+  } catch {
+    // The client disconnecting early (or any other read failure on this
+    // branch) means the real cost can never be known here — release the
+    // worst-case hold rather than leave it stuck at the estimate forever.
+    await releaseReservation(env, userDayKey, globalMonthKey, estimateCents);
+    return;
+  }
+  if (usage.input_tokens || usage.output_tokens) {
+    const actualCents = actualCostCents(model, usage);
+    await reconcileReservation(env, userDayKey, globalMonthKey, estimateCents, actualCents);
+  } else {
+    // Stream ended without ever producing a usage object — treat it the
+    // same as an outright failure rather than silently keeping the
+    // worst-case estimate charged against the cap.
+    await releaseReservation(env, userDayKey, globalMonthKey, estimateCents);
+  }
 }
 
 // Rough, deliberately conservative token estimate (chars/3, i.e. fewer
