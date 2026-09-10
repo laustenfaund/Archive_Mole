@@ -1291,7 +1291,13 @@ Apr 14, 2026</div>
             AI Assistant
             <span style="font-family: var(--mono); font-size: 11px; color: var(--text3); font-weight: 400">— hosted, passcode-gated</span>
           </div>
-          <button id="assistant-close-btn" class="add-files-btn">close</button>
+          <div style="display: flex; gap: 8px; align-items: center">
+            <div id="assistant-header-controls" style="display: none; gap: 8px; align-items: center">
+              <button id="assistant-clear-chat-btn" class="small-btn">clear chat</button>
+              <button id="assistant-change-key-btn" class="small-btn">change passcode</button>
+            </div>
+            <button id="assistant-close-btn" class="add-files-btn">close</button>
+          </div>
         </div>
 
         <div id="assistant-setup" style="display: none; flex: 1; min-height: 0; flex-direction: column; gap: 12px; overflow-y: auto;">
@@ -1319,8 +1325,6 @@ Apr 14, 2026</div>
               <option value="medium">medium</option>
               <option value="low">low</option>
             </select>
-            <button id="assistant-clear-chat-btn" class="small-btn" style="margin-left: auto">clear chat</button>
-            <button id="assistant-change-key-btn" class="small-btn">change passcode</button>
           </div>
           <div id="assistant-messages" class="messages-scroll" style="flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem;"></div>
           <div style="display: flex; gap: 8px; align-items: flex-end">
@@ -3414,6 +3418,9 @@ Apr 14, 2026</div>
           document.getElementById('assistant-chat').style.display = key
             ? 'flex'
             : 'none';
+          document.getElementById('assistant-header-controls').style.display = key
+            ? 'flex'
+            : 'none';
         });
       document
         .getElementById('assistant-close-btn')
@@ -3435,6 +3442,7 @@ Apr 14, 2026</div>
           document.getElementById('assistant-key-input').value = '';
           document.getElementById('assistant-setup').style.display = 'none';
           document.getElementById('assistant-chat').style.display = 'flex';
+          document.getElementById('assistant-header-controls').style.display = 'flex';
         });
       document
         .getElementById('assistant-change-key-btn')
@@ -3442,6 +3450,7 @@ Apr 14, 2026</div>
           await idbDelete(PASSCODE_KEY);
           document.getElementById('assistant-chat').style.display = 'none';
           document.getElementById('assistant-setup').style.display = 'flex';
+          document.getElementById('assistant-header-controls').style.display = 'none';
         });
       document
         .getElementById('assistant-clear-chat-btn')
