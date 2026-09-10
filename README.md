@@ -31,14 +31,6 @@ want to give a few people access to the assistant without also giving them
 your API key. See [`worker/README.md`](worker/README.md) to deploy the
 proxy; the UI is otherwise identical to the plain version above.
 
-## The creator variant
-
-[`creator/`](creator) is a third clone, for the app owner's own use —
-same passcode-gated, key-hidden shape as `hosted/`, but its own separate
-Worker ([`worker-creator/`](worker-creator)) with no spend cap and no
-output-token ceiling. Not meant to be handed out; see
-[`worker-creator/README.md`](worker-creator/README.md) to deploy it.
-
 ## Installing on your phone
 
 This app is installable as a PWA (Progressive Web App) once hosted somewhere
