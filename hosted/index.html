@@ -3216,6 +3216,81 @@ Apr 14, 2026</div>
         };
       }
 
+      // Real per-conversation computation, not the model summing filter/
+      // search results in its head. tag is the one multi-value dimension —
+      // an untagged conversation still lands in its own '(untagged)' bucket
+      // rather than being dropped, so counts across all buckets add back up
+      // to the pool size for every other groupBy.
+      function statsBucketKeys(conv, groupBy) {
+        if (groupBy === 'platform') return [conv.platform || '(none)'];
+        if (groupBy === 'model') return [conv.model || '(none)'];
+        if (groupBy === 'tag') {
+          const tags = userTags[conv.id];
+          return tags && tags.length ? tags : ['(untagged)'];
+        }
+        if (groupBy === 'month' || groupBy === 'year') {
+          const t = conv.updated || conv.created;
+          if (!t) return ['(no date)'];
+          const d = new Date(t * 1000);
+          return [
+            groupBy === 'year'
+              ? String(d.getFullYear())
+              : d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'),
+          ];
+        }
+        return ['(unknown)'];
+      }
+
+      function toolGetStats(input) {
+        const groupBy = input.groupBy;
+        if (!['platform', 'tag', 'model', 'month', 'year'].includes(groupBy))
+          return { error: 'groupBy must be one of platform, tag, model, month, year' };
+        const metric = ['wordCount', 'messageCount'].includes(input.metric)
+          ? input.metric
+          : null;
+        let pool = allConversations;
+        if (Array.isArray(input.ids) && input.ids.length)
+          pool = pool.filter((c) => input.ids.includes(c.id));
+        const groups = new Map();
+        for (const conv of pool) {
+          for (const key of statsBucketKeys(conv, groupBy)) {
+            let g = groups.get(key);
+            if (!g) {
+              g = { key, count: 0, sum: 0, min: Infinity, max: -Infinity };
+              groups.set(key, g);
+            }
+            g.count++;
+            if (metric) {
+              const v = conv[metric] || 0;
+              g.sum += v;
+              if (v < g.min) g.min = v;
+              if (v > g.max) g.max = v;
+            }
+          }
+        }
+        const groupsOut = [...groups.values()]
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 200)
+          .map((g) =>
+            metric
+              ? {
+                  key: g.key,
+                  count: g.count,
+                  sum: g.sum,
+                  avg: Math.round((g.sum / g.count) * 10) / 10,
+                  min: g.min,
+                  max: g.max,
+                }
+              : { key: g.key, count: g.count }
+          );
+        return {
+          groupBy,
+          metric: metric || null,
+          totalConversations: pool.length,
+          groups: groupsOut,
+        };
+      }
+
       function toolRecordFinding(input) {
         if (!input.id || !input.note)
           return { error: 'id and note are both required' };
@@ -3333,6 +3408,20 @@ Apr 14, 2026</div>
           },
         },
         {
+          name: 'get_stats',
+          description:
+            "Compute real counts — and, with a metric set, sum/avg/min/max — grouped by platform, tag, model, or month/year, instead of tallying filter_conversations or search_conversations results yourself. Optionally restrict to specific ids from a prior filter or search call. Use this whenever a question is quantitative ('how many', 'which month had the most', 'average length') rather than reaching for filter_conversations and adding results up in your head.",
+          input_schema: {
+            type: 'object',
+            properties: {
+              groupBy: { type: 'string', enum: ['platform', 'tag', 'model', 'month', 'year'] },
+              metric: { type: 'string', enum: ['wordCount', 'messageCount'] },
+              ids: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['groupBy'],
+          },
+        },
+        {
           name: 'read_conversation',
           description:
             'Return the full verbatim messages of one conversation by id. This is the expensive, close-reading step — use it only for conversations already flagged as high-signal. The full text is only visible for this round and the next; call record_finding before moving on to another conversation, or the detail is gone from context (though the conversation can always be re-read).',
@@ -3364,6 +3453,8 @@ Apr 14, 2026</div>
             return toolFilterConversations(input || {});
           if (name === 'search_conversations')
             return toolSearchConversations(input || {});
+          if (name === 'get_stats')
+            return toolGetStats(input || {});
           if (name === 'read_conversation')
             return toolReadConversation(input || {});
           if (name === 'record_finding')
