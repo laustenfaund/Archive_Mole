@@ -30,3 +30,17 @@ id = "REPLACE-WITH-PASSCODES-NAMESPACE-ID"
 # --- Secret ---
 # Set with: wrangler secret put ANTHROPIC_API_KEY
 # Never put the real key in this file.
+
+# --- Rate limits (no KV writes) ---
+# Workers rate-limit bindings. namespace_id must be unique per binding
+# within your Cloudflare account. If your wrangler is too old to know
+# [[ratelimits]], the Worker falls back to its KV-based counters.
+[[ratelimits]]
+name = "IP_LIMITER"
+namespace_id = "1041"
+simple = { limit = 20, period = 60 }
+
+[[ratelimits]]
+name = "PASSCODE_LIMITER"
+namespace_id = "1042"
+simple = { limit = 10, period = 60 }

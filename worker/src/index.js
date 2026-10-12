@@ -104,12 +104,9 @@ export default {
     // CF-Connecting-IP is set by Cloudflare at the edge, so a client can't
     // spoof it to dodge this.
     const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
-    const ipRateKey = `iprate:${clientIp}:${Math.floor(Date.now() / 60000)}`;
-    const ipRateCount = (await readInt(env.USAGE, ipRateKey)) + 1;
-    if (ipRateCount > IP_RATE_LIMIT_PER_MINUTE) {
+    if (!(await underRateLimit(env, env.IP_LIMITER, `iprate:${clientIp}`, IP_RATE_LIMIT_PER_MINUTE))) {
       return jsonError(429, 'Too many requests from this address. Try again shortly.', cors);
     }
-    await env.USAGE.put(ipRateKey, String(ipRateCount), { expirationTtl: TTL_MINUTE });
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors });
@@ -141,16 +138,13 @@ export default {
     }
     const userId = record.name || passHash;
 
-    const rateKey = `rate:${userId}:${Math.floor(Date.now() / 60000)}`;
-    const rateCount = (await readInt(env.USAGE, rateKey)) + 1;
-    if (rateCount > RATE_LIMIT_PER_MINUTE) {
+    if (!(await underRateLimit(env, env.PASSCODE_LIMITER, `rate:${userId}`, RATE_LIMIT_PER_MINUTE))) {
       return jsonError(
         429,
         `Too many requests — limit is ${RATE_LIMIT_PER_MINUTE}/minute per passcode. Try again shortly.`,
         cors
       );
     }
-    await env.USAGE.put(rateKey, String(rateCount), { expirationTtl: TTL_MINUTE });
 
     let body;
     try {
@@ -158,6 +152,9 @@ export default {
     } catch {
       return jsonError(400, 'Invalid JSON body', cors);
     }
+
+    const contentError = findDisallowedContent(body);
+    if (contentError) return jsonError(400, contentError, cors);
 
     if (!ALLOWED_MODELS.includes(body.model)) {
       return jsonError(400, `Model not allowed: ${body.model}`, cors);
@@ -174,7 +171,7 @@ export default {
       max_tokens: maxTokens,
       stream: true,
       system: body.system,
-      tools: body.tools,
+      tools: cleanTools(body.tools),
       output_config: body.output_config,
       messages: body.messages,
     };
@@ -272,6 +269,105 @@ export default {
     });
   },
 };
+
+// Prefers a Workers rate-limit binding (see [[ratelimits]] in wrangler.toml):
+// it counts at the edge without touching KV, so a flood of junk requests
+// can't burn through the KV free tier's 1,000 writes/day and take the
+// Worker down for everyone. Falls back to the old KV counter only if the
+// binding isn't configured.
+async function underRateLimit(env, limiter, key, perMinute) {
+  if (limiter && typeof limiter.limit === 'function') {
+    const { success } = await limiter.limit({ key });
+    return success;
+  }
+  const kvKey = `${key}:${Math.floor(Date.now() / 60000)}`;
+  const count = (await readInt(env.USAGE, kvKey)) + 1;
+  if (count > perMinute) return false;
+  await env.USAGE.put(kvKey, String(count), { expirationTtl: TTL_MINUTE });
+  return true;
+}
+
+// Only the assistant's own tools are forwarded. Each runs in the browser
+// against the local archive; nothing else is allowed through - in
+// particular no Anthropic server tools (web search, web fetch, code
+// execution), which bill per use on top of tokens and so would slip past
+// the spend caps below.
+const ALLOWED_TOOL_NAMES = new Set(['filter_conversations', 'search_conversations', 'get_stats', 'read_conversation', 'record_finding']);
+
+function cleanTools(tools) {
+  if (!Array.isArray(tools)) return undefined;
+  return tools.map((t) => {
+    const out = { name: t.name, description: t.description, input_schema: t.input_schema };
+    if (t.cache_control) out.cache_control = t.cache_control;
+    return out;
+  });
+}
+
+// Only content the hosted page itself sends is forwarded: text, images
+// or documents whose bytes are inline in the request, the assistant's own
+// tool calls and results, and thinking blocks echoed back from earlier
+// turns. A URL- or file_id-sourced image/document is tiny in the request
+// but can bill a huge number of input tokens the pre-call cost estimate
+// can't see; server-tool blocks and anything unknown are refused too.
+const ALLOWED_BLOCK_TYPES = new Set([
+  'text', 'image', 'document', 'tool_use', 'tool_result', 'thinking', 'redacted_thinking',
+]);
+const INLINE_SOURCE_TYPES = new Set(['base64', 'text']);
+
+function findDisallowedContent(body) {
+  if (!Array.isArray(body.messages) || !body.messages.length) {
+    return 'messages must be a non-empty array';
+  }
+  for (const msg of body.messages) {
+    if (!msg || (msg.role !== 'user' && msg.role !== 'assistant')) {
+      return 'Each message must have role "user" or "assistant"';
+    }
+    const err = checkContent(msg.content);
+    if (err) return err;
+  }
+  if (body.system !== undefined) {
+    if (Array.isArray(body.system)) {
+      if (!body.system.every((b) => b && b.type === 'text' && typeof b.text === 'string')) {
+        return 'system may only contain text blocks';
+      }
+    } else if (typeof body.system !== 'string') {
+      return 'system must be a string or an array of text blocks';
+    }
+  }
+  if (body.tools !== undefined) {
+    if (!Array.isArray(body.tools)) return 'tools must be an array';
+    for (const t of body.tools) {
+      if (!t || (t.type !== undefined && t.type !== 'custom') || !ALLOWED_TOOL_NAMES.has(t.name)) {
+        return `Tool not allowed: ${t && (t.name || t.type)}`;
+      }
+    }
+  }
+  return null;
+}
+
+function checkContent(content) {
+  if (typeof content === 'string') return null;
+  if (!Array.isArray(content)) return 'Message content must be a string or an array';
+  for (const block of content) {
+    if (!block || !ALLOWED_BLOCK_TYPES.has(block.type)) {
+      return `Content block type not allowed: ${block && block.type}`;
+    }
+    if (block.type === 'image' || block.type === 'document') {
+      const src = block.source;
+      if (!src || !INLINE_SOURCE_TYPES.has(src.type)) {
+        return `Only inline ${block.type} data is allowed (no URL or file references)`;
+      }
+    }
+    if (block.type === 'tool_use' && !ALLOWED_TOOL_NAMES.has(block.name)) {
+      return `Tool not allowed: ${block.name}`;
+    }
+    if (block.type === 'tool_result' && block.content !== undefined && typeof block.content !== 'string') {
+      const err = checkContent(block.content);
+      if (err) return err;
+    }
+  }
+  return null;
+}
 
 function corsHeaders(env, origin) {
   return {
